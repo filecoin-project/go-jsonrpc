@@ -1,6 +1,5 @@
 package metrics
 
-
 import (
 	"go.opencensus.io/stats"
 	"go.opencensus.io/stats/view"
@@ -9,14 +8,14 @@ import (
 
 // Global Tags
 var (
-	RPCMethod, _    = tag.NewKey("method")
+	RPCMethod, _ = tag.NewKey("method")
 )
 
 // Measures
 var (
-	RPCInvalidMethod         = stats.Int64("rpc/invalid_method", "Total number of invalid RPC methods called", stats.UnitDimensionless)
-	RPCRequestError          = stats.Int64("rpc/request_error", "Total number of request errors handled", stats.UnitDimensionless)
-	RPCResponseError         = stats.Int64("rpc/response_error", "Total number of responses errors handled", stats.UnitDimensionless)
+	RPCInvalidMethod = stats.Int64("rpc/invalid_method", "Total number of invalid RPC methods called", stats.UnitDimensionless)
+	RPCRequestError  = stats.Int64("rpc/request_error", "Total number of request errors handled", stats.UnitDimensionless)
+	RPCResponseError = stats.Int64("rpc/response_error", "Total number of responses errors handled", stats.UnitDimensionless)
 )
 
 var (
@@ -44,4 +43,3 @@ var DefaultViews = []*view.View{
 	RPCRequestErrorView,
 	RPCResponseErrorView,
 }
-
