@@ -9,12 +9,13 @@ import (
 	"io"
 	"reflect"
 
-	"github.com/filecoin-project/lotus/metrics"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
 	"go.opencensus.io/trace"
 	"go.opencensus.io/trace/propagation"
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/go-jsonrpc/metrics"
 )
 
 type rpcHandler struct {
