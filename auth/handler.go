@@ -27,8 +27,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if token != "" {
+		ips := []string{r.RemoteAddr}
+		ips = append(ips, r.Header["X-Forwarded-For"]...)
+
 		if !strings.HasPrefix(token, "Bearer ") {
-			log.Warn("missing Bearer prefix in auth header")
+			log.Warnf("missing Bearer prefix in auth header:%+v", ips)
 			w.WriteHeader(401)
 			return
 		}
@@ -36,7 +39,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		allow, err := h.Verify(ctx, token)
 		if err != nil {
-			log.Warnf("JWT Verification failed: %s", err)
+			log.Warnf("JWT Verification failed: %s,%+v", err, ips)
 			w.WriteHeader(401)
 			return
 		}
