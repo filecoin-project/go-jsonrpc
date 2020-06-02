@@ -157,7 +157,6 @@ func (c *client) makeOutChan(ctx context.Context, ftyp reflect.Type, valOut int)
 		// unpack chan type to make sure it's reflect.BothDir
 		ctyp := reflect.ChanOf(reflect.BothDir, ftyp.Out(valOut).Elem())
 		ch := reflect.MakeChan(ctyp, 0) // todo: buffer?
-		chCtx, chCancel := context.WithCancel(ctx)
 		retVal = ch.Convert(ftyp.Out(valOut))
 
 		incoming := make(chan reflect.Value, 32)
@@ -172,7 +171,7 @@ func (c *client) makeOutChan(ctx context.Context, ftyp reflect.Type, valOut int)
 				cases := []reflect.SelectCase{
 					{
 						Dir:  reflect.SelectRecv,
-						Chan: reflect.ValueOf(chCtx.Done()),
+						Chan: reflect.ValueOf(ctx.Done()),
 					},
 					{
 						Dir:  reflect.SelectRecv,
@@ -188,32 +187,41 @@ func (c *client) makeOutChan(ctx context.Context, ftyp reflect.Type, valOut int)
 					})
 				}
 
-				chosen, val, _ := reflect.Select(cases)
+				chosen, val, ok := reflect.Select(cases)
 
 				switch chosen {
 				case 0:
 					ch.Close()
 					return
 				case 1:
-					vvval := val.Interface().(reflect.Value)
-					buf.PushBack(vvval)
-					if buf.Len() > 1 {
-						if buf.Len() > 10 {
-							log.Warnw("rpc output message buffer", "n", buf.Len())
-						} else {
-							log.Infow("rpc output message buffer", "n", buf.Len())
+					if ok {
+						vvval := val.Interface().(reflect.Value)
+						buf.PushBack(vvval)
+						if buf.Len() > 1 {
+							if buf.Len() > 10 {
+								log.Warnw("rpc output message buffer", "n", buf.Len())
+							} else {
+								log.Infow("rpc output message buffer", "n", buf.Len())
+							}
 						}
+					} else {
+						incoming = nil
 					}
 
 				case 2:
 					buf.Remove(front)
+				}
+
+				if incoming == nil && buf.Len() == 0 {
+					ch.Close()
+					return
 				}
 			}
 		}()
 
 		return ctx, func(result []byte, ok bool) {
 			if !ok {
-				chCancel()
+				close(incoming)
 				return
 			}
 
@@ -230,7 +238,7 @@ func (c *client) makeOutChan(ctx context.Context, ftyp reflect.Type, valOut int)
 
 			select {
 			case incoming <- val:
-			case <-chCtx.Done():
+			case <-ctx.Done():
 			}
 		}
 	}
