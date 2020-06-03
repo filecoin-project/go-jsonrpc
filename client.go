@@ -6,6 +6,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math"
+	"math/rand"
 	"net/http"
 	"reflect"
 	"sync/atomic"
@@ -19,7 +21,8 @@ import (
 )
 
 const (
-	methodRetryFrequency = time.Second * 3
+	methodMinRetryDelay = 100 * time.Millisecond
+	methodMaxRetryDelay = 24 * time.Hour
 )
 
 var (
@@ -387,7 +390,7 @@ func (fn *rpcFunc) handleRpcCall(args []reflect.Value) (results []reflect.Value)
 	var err error
 	// keep retrying if got a forced closed websocket conn and calling method
 	// has retry annotation
-	for {
+	for attempt := 0; true; attempt++ {
 		resp, err = fn.client.sendRequest(ctx, req, chCtor)
 		if err != nil {
 			return fn.processError(fmt.Errorf("sendRequest failed: %w", err))
@@ -414,10 +417,25 @@ func (fn *rpcFunc) handleRpcCall(args []reflect.Value) (results []reflect.Value)
 		if !retry {
 			break
 		}
-		time.Sleep(methodRetryFrequency)
+
+		time.Sleep(backoff(attempt))
 	}
 
 	return fn.processResponse(resp, retVal())
+}
+
+func backoff(attempt int) time.Duration {
+	minf := float64(methodMinRetryDelay)
+	durf := minf * math.Pow(1.5, float64(attempt))
+	durf = durf + rand.Float64()*minf
+
+	delay := time.Duration(durf)
+
+	if delay > methodMaxRetryDelay {
+		return methodMaxRetryDelay
+	}
+
+	return delay
 }
 
 func (c *client) makeRpcFunc(f reflect.StructField) (reflect.Value, error) {
