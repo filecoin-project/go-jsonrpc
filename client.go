@@ -425,6 +425,10 @@ func (fn *rpcFunc) handleRpcCall(args []reflect.Value) (results []reflect.Value)
 }
 
 func backoff(attempt int) time.Duration {
+	if attempt < 0 {
+		return methodMinRetryDelay
+	}
+
 	minf := float64(methodMinRetryDelay)
 	durf := minf * math.Pow(1.5, float64(attempt))
 	durf = durf + rand.Float64()*minf
