@@ -22,7 +22,7 @@ import (
 
 const (
 	methodMinRetryDelay = 100 * time.Millisecond
-	methodMaxRetryDelay = 24 * time.Hour
+	methodMaxRetryDelay = 10 * time.Minute
 )
 
 var (
