@@ -14,6 +14,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	logging "github.com/ipfs/go-log/v2"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -60,6 +61,63 @@ func (h *SimpleServerHandler) StringMatch(t TestType, i2 int64) (out TestOut, er
 	out.I = t.I
 	out.S = t.S
 	return
+}
+
+func TestReconnection(t *testing.T) {
+	var rpcClient struct {
+		Add func(int) error
+	}
+
+	rpcHandler := SimpleServerHandler{}
+
+	rpcServer := NewServer()
+	rpcServer.Register("SimpleServerHandler", &rpcHandler)
+
+	testServ := httptest.NewServer(rpcServer)
+	defer testServ.Close()
+
+	// capture connection attempts for this duration
+	captureDuration := 3 * time.Second
+
+	// run the test until the timer expires
+	timer := time.NewTimer(captureDuration)
+
+	// record the number of connection attempts during this test
+	connectionAttempts := 1
+
+	closer, err := NewMergeClient("ws://"+testServ.Listener.Addr().String(), "SimpleServerHandler", []interface{}{&rpcClient}, nil, func(c *Config) {
+		c.proxyConnFactory = func(f func() (*websocket.Conn, error)) func() (*websocket.Conn, error) {
+			return func() (*websocket.Conn, error) {
+				defer func() {
+					connectionAttempts++
+				}()
+
+				if connectionAttempts > 1 {
+					return nil, errors.New("simulates a failed reconnect attempt")
+				}
+
+				c, err := f()
+				if err != nil {
+					return nil, err
+				}
+
+				// closing the connection here triggers the reconnect logic
+				_ = c.Close()
+
+				return c, nil
+			}
+		}
+	})
+	require.NoError(t, err)
+	defer closer()
+
+	// let the JSON-RPC library attempt to reconnect until the timer runs out
+	<-timer.C
+
+	// do some math
+	attemptsPerSecond := int64(connectionAttempts) / int64(captureDuration/time.Second)
+
+	assert.Less(t, attemptsPerSecond, int64(50))
 }
 
 func TestRPC(t *testing.T) {

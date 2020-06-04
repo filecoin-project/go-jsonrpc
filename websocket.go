@@ -43,13 +43,13 @@ type outChanReg struct {
 
 type wsConn struct {
 	// outside params
-	conn              *websocket.Conn
-	connFactory       func() (*websocket.Conn, error)
-	reconnectInterval time.Duration
-	handler           handlers
-	requests          <-chan clientRequest
-	stop              <-chan struct{}
-	exiting           chan struct{}
+	conn             *websocket.Conn
+	connFactory      func() (*websocket.Conn, error)
+	reconnectBackoff backoff
+	handler          handlers
+	requests         <-chan clientRequest
+	stop             <-chan struct{}
+	exiting          chan struct{}
 
 	// incoming messages
 	incoming    chan io.Reader
@@ -490,13 +490,15 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 								return
 							}
 
+							attempts := 0
 							var conn *websocket.Conn
 							for conn == nil {
-								time.Sleep(c.reconnectInterval)
+								time.Sleep(c.reconnectBackoff.next(attempts))
 								var err error
 								if conn, err = c.connFactory(); err != nil {
 									log.Debugw("websocket connection retry failed", "error", err)
 								}
+								attempts++
 							}
 
 							c.writeLk.Lock()

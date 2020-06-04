@@ -7,19 +7,25 @@ import (
 )
 
 type Config struct {
-	ReconnectInterval time.Duration
+	reconnectBackoff backoff
 
 	proxyConnFactory func(func() (*websocket.Conn, error)) func() (*websocket.Conn, error) // for testing
 }
 
 var defaultConfig = Config{
-	ReconnectInterval: time.Second * 5,
+	reconnectBackoff: backoff{
+		minDelay: 100 * time.Millisecond,
+		maxDelay: 5 * time.Second,
+	},
 }
 
 type Option func(c *Config)
 
-func WithReconnectInterval(d time.Duration) func(c *Config) {
+func WithReconnectBackoff(minDelay, maxDelay time.Duration) func(c *Config) {
 	return func(c *Config) {
-		c.ReconnectInterval = d
+		c.reconnectBackoff = backoff{
+			minDelay: minDelay,
+			maxDelay: maxDelay,
+		}
 	}
 }

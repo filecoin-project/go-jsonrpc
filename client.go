@@ -6,8 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"math"
-	"math/rand"
 	"net/http"
 	"reflect"
 	"sync/atomic"
@@ -86,7 +84,7 @@ type client struct {
 // NewMergeClient is like NewClient, but allows to specify multiple structs
 // to be filled in the same namespace, using one connection
 func NewMergeClient(addr string, namespace string, outs []interface{}, requestHeader http.Header, opts ...Option) (ClientCloser, error) {
-	var config Config
+	config := defaultConfig
 	for _, o := range opts {
 		o(&config)
 	}
@@ -116,13 +114,13 @@ func NewMergeClient(addr string, namespace string, outs []interface{}, requestHe
 
 	handlers := map[string]rpcHandler{}
 	go (&wsConn{
-		conn:              conn,
-		connFactory:       connFactory,
-		reconnectInterval: config.ReconnectInterval,
-		handler:           handlers,
-		requests:          c.requests,
-		stop:              stop,
-		exiting:           exiting,
+		conn:             conn,
+		connFactory:      connFactory,
+		reconnectBackoff: config.reconnectBackoff,
+		handler:          handlers,
+		requests:         c.requests,
+		stop:             stop,
+		exiting:          exiting,
 	}).handleWsConn(context.TODO())
 
 	for _, handler := range outs {
@@ -386,6 +384,11 @@ func (fn *rpcFunc) handleRpcCall(args []reflect.Value) (results []reflect.Value)
 		}
 	}
 
+	b := backoff{
+		maxDelay: methodMaxRetryDelay,
+		minDelay: methodMinRetryDelay,
+	}
+
 	var resp clientResponse
 	var err error
 	// keep retrying if got a forced closed websocket conn and calling method
@@ -418,28 +421,10 @@ func (fn *rpcFunc) handleRpcCall(args []reflect.Value) (results []reflect.Value)
 			break
 		}
 
-		time.Sleep(backoff(attempt))
+		time.Sleep(b.next(attempt))
 	}
 
 	return fn.processResponse(resp, retVal())
-}
-
-func backoff(attempt int) time.Duration {
-	if attempt < 0 {
-		return methodMinRetryDelay
-	}
-
-	minf := float64(methodMinRetryDelay)
-	durf := minf * math.Pow(1.5, float64(attempt))
-	durf = durf + rand.Float64()*minf
-
-	delay := time.Duration(durf)
-
-	if delay > methodMaxRetryDelay {
-		return methodMaxRetryDelay
-	}
-
-	return delay
 }
 
 func (c *client) makeRpcFunc(f reflect.StructField) (reflect.Value, error) {
