@@ -561,6 +561,73 @@ func TestServerChanLockClose(t *testing.T) {
 	<-serverHandler.ctxdone
 }
 
+type StreamingHandler struct {
+}
+
+func (h *StreamingHandler) GetData(ctx context.Context, n int) (<-chan int, error) {
+	out := make(chan int)
+
+	go func() {
+		defer close(out)
+
+		for i := 0; i < n; i++ {
+			out <- i
+		}
+	}()
+
+	return out, nil
+}
+
+func TestChanClientReceiveAll(t *testing.T) {
+	var client struct {
+		GetData func(context.Context, int) (<-chan int, error)
+	}
+
+	serverHandler := &StreamingHandler{}
+
+	rpcServer := NewServer()
+	rpcServer.Register("ChanHandler", serverHandler)
+
+	tctx, tcancel := context.WithCancel(context.Background())
+
+	testServ := httptest.NewServer(rpcServer)
+	testServ.Config.ConnContext = func(ctx context.Context, c net.Conn) context.Context {
+		return tctx
+	}
+
+	closer, err := NewClient("ws://"+testServ.Listener.Addr().String(), "ChanHandler", &client, nil)
+	require.NoError(t, err)
+
+	defer closer()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// sub
+
+	sub, err := client.GetData(ctx, 100)
+	require.NoError(t, err)
+
+	for i := 0; i < 100; i++ {
+		select {
+		case v, ok := <-sub:
+			if !ok {
+				t.Fatal("channel closed", i)
+			}
+
+			if v != i {
+				t.Fatal("got wrong value", v, i)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for values")
+		}
+	}
+
+	tcancel()
+	testServ.Close()
+
+}
+
 func TestControlChanDeadlock(t *testing.T) {
 	for r := 0; r < 20; r++ {
 		testControlChanDeadlock(t)
