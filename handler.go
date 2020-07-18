@@ -238,15 +238,13 @@ func (h handlers) handle(ctx context.Context, req request, w func(func(io.Writer
 	var kind reflect.Kind
 	var res interface{}
 	var nonZero bool
-	var nonNil bool
 	if handler.valOut != -1 {
 		res = callResult[handler.valOut].Interface()
 		kind = callResult[handler.valOut].Kind()
 		nonZero = !callResult[handler.valOut].IsZero()
-		nonNil = !callResult[handler.valOut].IsNil()
 	}
 
-	if kind == reflect.Chan && nonNil {
+	if res != nil && kind == reflect.Chan {
 		// Channel responses are sent from channel control goroutine.
 		// Sending responses here could cause deadlocks on writeLk, or allow
 		// sending channel messages before this rpc call returns
