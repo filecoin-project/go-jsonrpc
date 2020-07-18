@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"runtime/debug"
 
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
@@ -122,7 +123,7 @@ func (h handlers) handleReader(ctx context.Context, r io.Reader, w io.Writer, rp
 func doCall(methodName string, f reflect.Value, params []reflect.Value) (out []reflect.Value, err error) {
 	defer func() {
 		if i := recover(); i != nil {
-			err = xerrors.Errorf("panic in rpc method '%s': %s", methodName, i)
+			err = xerrors.Errorf("panic in rpc '%s': %s", i, string(debug.Stack()))
 			log.Error(err)
 		}
 	}()
@@ -223,25 +224,29 @@ func (h handlers) handle(ctx context.Context, req request, w func(func(io.Writer
 	if handler.errOut != -1 {
 		err := callResult[handler.errOut].Interface()
 		if err != nil {
-			log.Warnf("error in RPC call to '%s': %+v", req.Method, err)
+			//log.Warnf("error in RPC call to '%s': %+v", req.Method, err)
 			stats.Record(ctx, metrics.RPCResponseError.M(1))
 			resp.Error = &respError{
 				Code:    1,
 				Message: err.(error).Error(),
 			}
+			rpcError(w, &req, 0, err.(error))
+			return
 		}
 	}
 
 	var kind reflect.Kind
 	var res interface{}
 	var nonZero bool
+	var nonNil bool
 	if handler.valOut != -1 {
 		res = callResult[handler.valOut].Interface()
 		kind = callResult[handler.valOut].Kind()
 		nonZero = !callResult[handler.valOut].IsZero()
+		nonNil = !callResult[handler.valOut].IsNil()
 	}
 
-	if res != nil && kind == reflect.Chan {
+	if kind == reflect.Chan && nonNil {
 		// Channel responses are sent from channel control goroutine.
 		// Sending responses here could cause deadlocks on writeLk, or allow
 		// sending channel messages before this rpc call returns
