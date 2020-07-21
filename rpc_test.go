@@ -120,6 +120,10 @@ func TestReconnection(t *testing.T) {
 	assert.Less(t, attemptsPerSecond, int64(50))
 }
 
+func (h *SimpleServerHandler) ErrChanSub(ctx context.Context) (<-chan int, error) {
+	return nil, errors.New("expect to return an error")
+}
+
 func TestRPC(t *testing.T) {
 	// setup server
 
@@ -137,6 +141,7 @@ func TestRPC(t *testing.T) {
 		Add         func(int) error
 		AddGet      func(int) int
 		StringMatch func(t TestType, i2 int64) (out TestOut, err error)
+		ErrChanSub  func(context.Context) (<-chan int, error)
 	}
 	closer, err := NewClient("ws://"+testServ.Listener.Addr().String(), "SimpleServerHandler", &client, nil)
 	require.NoError(t, err)
@@ -170,6 +175,13 @@ func TestRPC(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "8", o.S)
 	require.Equal(t, 8, o.I)
+
+	// ErrChanSub
+	ctx := context.TODO()
+	_, err = client.ErrChanSub(ctx)
+	if err == nil {
+		t.Fatal("expect an err return, but got nil")
+	}
 
 	// Invalid client handlers
 

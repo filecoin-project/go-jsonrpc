@@ -241,26 +241,28 @@ func (h handlers) handle(ctx context.Context, req request, w func(func(io.Writer
 		nonZero = !callResult[handler.valOut].IsZero()
 	}
 
-	if res != nil && kind == reflect.Chan {
-		// Channel responses are sent from channel control goroutine.
-		// Sending responses here could cause deadlocks on writeLk, or allow
-		// sending channel messages before this rpc call returns
+	// check error as JSON-RPC spec prohibits error and value at the same time
+	if resp.Error == nil {
+		if res != nil && kind == reflect.Chan {
+			// Channel responses are sent from channel control goroutine.
+			// Sending responses here could cause deadlocks on writeLk, or allow
+			// sending channel messages before this rpc call returns
 
-		//noinspection GoNilness // already checked above
-		err = chOut(callResult[handler.valOut], *req.ID)
-		if err == nil {
-			return // channel goroutine handles responding
-		}
+			//noinspection GoNilness // already checked above
+			err = chOut(callResult[handler.valOut], *req.ID)
+			if err == nil {
+				return // channel goroutine handles responding
+			}
 
-		log.Warnf("failed to setup channel in RPC call to '%s': %+v", req.Method, err)
-		stats.Record(ctx, metrics.RPCResponseError.M(1))
-		resp.Error = &respError{
-			Code:    1,
-			Message: err.(error).Error(),
+			log.Warnf("failed to setup channel in RPC call to '%s': %+v", req.Method, err)
+			stats.Record(ctx, metrics.RPCResponseError.M(1))
+			resp.Error = &respError{
+				Code:    1,
+				Message: err.(error).Error(),
+			}
+		} else {
+			resp.Result = res
 		}
-	} else if resp.Error == nil {
-		// check error as JSON-RPC spec prohibits error and value at the same time
-		resp.Result = res
 	}
 	if resp.Error != nil && nonZero {
 		log.Errorw("error and res returned", "request", req, "r.err", resp.Error, "res", res)
