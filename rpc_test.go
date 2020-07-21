@@ -178,13 +178,10 @@ func TestRPC(t *testing.T) {
 
 	// ErrChanSub
 	ctx := context.TODO()
-	// SPEC:
-	// need define a ctx for chan return, or it should panic for client.go:174#reflect.ValueOf(ctx.Done())
 	_, err = client.ErrChanSub(ctx)
 	if err == nil {
 		t.Fatal("expect an err return, but got nil")
 	}
-	//require.Error(t, ErrChanTest, err)
 
 	// Invalid client handlers
 
