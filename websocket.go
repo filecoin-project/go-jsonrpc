@@ -46,7 +46,7 @@ type wsConn struct {
 	conn             *websocket.Conn
 	connFactory      func() (*websocket.Conn, error)
 	reconnectBackoff backoff
-	handler          handlers
+	handler          *RPCServer
 	requests         <-chan clientRequest
 	stop             <-chan struct{}
 	exiting          chan struct{}
@@ -368,6 +368,11 @@ func (c *wsConn) handleResponse(frame frame) {
 }
 
 func (c *wsConn) handleCall(ctx context.Context, frame frame) {
+	if c.handler == nil {
+		log.Error("handleCall on client")
+		return
+	}
+
 	req := request{
 		Jsonrpc: frame.Jsonrpc,
 		ID:      frame.ID,

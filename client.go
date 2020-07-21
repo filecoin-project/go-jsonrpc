@@ -114,12 +114,11 @@ func NewMergeClient(addr string, namespace string, outs []interface{}, requestHe
 	c.requests = make(chan clientRequest)
 	c.exiting = exiting
 
-	handlers := map[string]rpcHandler{}
 	go (&wsConn{
 		conn:             conn,
 		connFactory:      connFactory,
 		reconnectBackoff: config.reconnectBackoff,
-		handler:          handlers,
+		handler:          nil,
 		requests:         c.requests,
 		stop:             stop,
 		exiting:          exiting,

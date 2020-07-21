@@ -2,6 +2,7 @@ package jsonrpc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -776,7 +777,7 @@ func TestInterfaceHandler(t *testing.T) {
 
 	serverHandler := &InterfaceHandler{}
 
-	rpcServer := NewServer()
+	rpcServer := NewServer(WithParamDecoder(new(io.Reader), readerDec))
 	rpcServer.Register("InterfaceHandler", serverHandler)
 
 	testServ := httptest.NewServer(rpcServer)
@@ -794,7 +795,7 @@ func TestInterfaceHandler(t *testing.T) {
 
 var (
 	readerRegistery   = map[int]io.Reader{}
-	readerRegisteryN  = 0
+	readerRegisteryN  = 31
 	readerRegisteryLk sync.Mutex
 )
 
@@ -809,4 +810,16 @@ func readerEnc(rin reflect.Value) (reflect.Value, error) {
 
 	readerRegistery[n] = reader
 	return reflect.ValueOf(n), nil
+}
+
+func readerDec(rin []byte) (reflect.Value, error) {
+	var id int
+	if err := json.Unmarshal(rin, &id); err != nil {
+		return reflect.Value{}, err
+	}
+
+	readerRegisteryLk.Lock()
+	defer readerRegisteryLk.Unlock()
+
+	return reflect.ValueOf(readerRegistery[id]), nil
 }
