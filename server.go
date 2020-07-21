@@ -22,7 +22,12 @@ type RPCServer struct {
 }
 
 // NewServer creates new RPCServer instance
-func NewServer() *RPCServer {
+func NewServer(opts ...ServerOption) *RPCServer {
+	config := defaultServerConfig
+	for _, o := range opts {
+		o(&config)
+	}
+
 	return &RPCServer{
 		methods: map[string]rpcHandler{},
 	}
