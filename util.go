@@ -3,7 +3,10 @@ package jsonrpc
 import (
 	"encoding/json"
 	"fmt"
+	"math"
+	"math/rand"
 	"reflect"
+	"time"
 )
 
 type param struct {
@@ -52,4 +55,27 @@ func processFuncOut(funcType reflect.Type) (valOut int, errOut int, n int) {
 	}
 
 	return
+}
+
+type backoff struct {
+	minDelay time.Duration
+	maxDelay time.Duration
+}
+
+func (b *backoff) next(attempt int) time.Duration {
+	if attempt < 0 {
+		return b.minDelay
+	}
+
+	minf := float64(b.minDelay)
+	durf := minf * math.Pow(1.5, float64(attempt))
+	durf = durf + rand.Float64()*minf
+
+	delay := time.Duration(durf)
+
+	if delay > b.maxDelay {
+		return b.maxDelay
+	}
+
+	return delay
 }
