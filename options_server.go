@@ -1,0 +1,23 @@
+package jsonrpc
+
+import (
+	"reflect"
+)
+
+type ParamDecoder func(json []byte) (reflect.Value, error)
+
+type ServerConfig struct {
+	paramDecoders map[reflect.Type]ParamDecoder
+}
+
+type ServerOption func(c *ServerConfig)
+
+var defaultServerConfig = ServerConfig{
+	paramDecoders: map[reflect.Type]ParamDecoder{},
+}
+
+func WithParamDecoder(t interface{}, decoder ParamDecoder) ServerOption {
+	return func(c *ServerConfig) {
+		c.paramDecoders[reflect.TypeOf(t).Elem()] = decoder
+	}
+}

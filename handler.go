@@ -31,8 +31,6 @@ type rpcHandler struct {
 	valOut int
 }
 
-type handlers map[string]rpcHandler
-
 // Request / response
 
 type request struct {
@@ -64,7 +62,7 @@ type response struct {
 
 // Register
 
-func (h handlers) register(namespace string, r interface{}) {
+func (s *RPCServer) register(namespace string, r interface{}) {
 	val := reflect.ValueOf(r)
 	//TODO: expect ptr
 
@@ -85,7 +83,7 @@ func (h handlers) register(namespace string, r interface{}) {
 
 		valOut, errOut, _ := processFuncOut(funcType)
 
-		h[namespace+"."+method.Name] = rpcHandler{
+		s.methods[namespace+"."+method.Name] = rpcHandler{
 			paramReceivers: recvs,
 			nParams:        ins,
 
@@ -105,7 +103,7 @@ func (h handlers) register(namespace string, r interface{}) {
 type rpcErrFunc func(w func(func(io.Writer)), req *request, code int, err error)
 type chanOut func(reflect.Value, int64) error
 
-func (h handlers) handleReader(ctx context.Context, r io.Reader, w io.Writer, rpcError rpcErrFunc) {
+func (s *RPCServer) handleReader(ctx context.Context, r io.Reader, w io.Writer, rpcError rpcErrFunc) {
 	wf := func(cb func(io.Writer)) {
 		cb(w)
 	}
@@ -116,7 +114,7 @@ func (h handlers) handleReader(ctx context.Context, r io.Reader, w io.Writer, rp
 		return
 	}
 
-	h.handle(ctx, req, wf, rpcError, func(bool) {}, nil)
+	s.handle(ctx, req, wf, rpcError, func(bool) {}, nil)
 }
 
 func doCall(methodName string, f reflect.Value, params []reflect.Value) (out []reflect.Value, err error) {
@@ -131,7 +129,7 @@ func doCall(methodName string, f reflect.Value, params []reflect.Value) (out []r
 	return out, nil
 }
 
-func (handlers) getSpan(ctx context.Context, req request) (context.Context, *trace.Span) {
+func (s *RPCServer) getSpan(ctx context.Context, req request) (context.Context, *trace.Span) {
 	if req.Meta == nil {
 		return ctx, nil
 	}
@@ -154,13 +152,13 @@ func (handlers) getSpan(ctx context.Context, req request) (context.Context, *tra
 	return ctx, nil
 }
 
-func (h handlers) handle(ctx context.Context, req request, w func(func(io.Writer)), rpcError rpcErrFunc, done func(keepCtx bool), chOut chanOut) {
+func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writer)), rpcError rpcErrFunc, done func(keepCtx bool), chOut chanOut) {
 	// Not sure if we need to sanitize the incoming req.Method or not.
-	ctx, span := h.getSpan(ctx, req)
+	ctx, span := s.getSpan(ctx, req)
 	ctx, _ = tag.New(ctx, tag.Insert(metrics.RPCMethod, req.Method))
 	defer span.End()
 
-	handler, ok := h[req.Method]
+	handler, ok := s.methods[req.Method]
 	if !ok {
 		rpcError(w, &req, rpcMethodNotFound, fmt.Errorf("method '%s' not found", req.Method))
 		stats.Record(ctx, metrics.RPCInvalidMethod.M(1))
@@ -191,14 +189,29 @@ func (h handlers) handle(ctx context.Context, req request, w func(func(io.Writer
 	}
 
 	for i := 0; i < handler.nParams; i++ {
-		rp := reflect.New(handler.paramReceivers[i])
-		if err := json.NewDecoder(bytes.NewReader(req.Params[i].data)).Decode(rp.Interface()); err != nil {
-			rpcError(w, &req, rpcParseError, xerrors.Errorf("unmarshaling params for '%s' (param: %T): %w", req.Method, rp.Interface(), err))
-			stats.Record(ctx, metrics.RPCRequestError.M(1))
-			return
+		var rp reflect.Value
+
+		typ := handler.paramReceivers[i]
+		dec, found := s.paramDecoders[typ]
+		if !found {
+			rp = reflect.New(typ)
+			if err := json.NewDecoder(bytes.NewReader(req.Params[i].data)).Decode(rp.Interface()); err != nil {
+				rpcError(w, &req, rpcParseError, xerrors.Errorf("unmarshaling params for '%s' (param: %T): %w", req.Method, rp.Interface(), err))
+				stats.Record(ctx, metrics.RPCRequestError.M(1))
+				return
+			}
+			rp = rp.Elem()
+		} else {
+			var err error
+			rp, err = dec(req.Params[i].data)
+			if err != nil {
+				rpcError(w, &req, rpcParseError, xerrors.Errorf("decoding params for '%s' (param: %T; custom decoder): %w", req.Method, rp.Interface(), err))
+				stats.Record(ctx, metrics.RPCRequestError.M(1))
+				return
+			}
 		}
 
-		callParams[i+1+handler.hasCtx] = reflect.ValueOf(rp.Elem().Interface())
+		callParams[i+1+handler.hasCtx] = reflect.ValueOf(rp.Interface())
 	}
 
 	///////////////////

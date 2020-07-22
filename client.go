@@ -74,7 +74,8 @@ func NewClient(addr string, namespace string, handler interface{}, requestHeader
 }
 
 type client struct {
-	namespace string
+	namespace     string
+	paramEncoders map[reflect.Type]ParamEncoder
 
 	requests chan clientRequest
 	exiting  <-chan struct{}
@@ -104,7 +105,8 @@ func NewMergeClient(addr string, namespace string, outs []interface{}, requestHe
 	}
 
 	c := client{
-		namespace: namespace,
+		namespace:     namespace,
+		paramEncoders: config.paramEncoders,
 	}
 
 	stop := make(chan struct{})
@@ -112,12 +114,11 @@ func NewMergeClient(addr string, namespace string, outs []interface{}, requestHe
 	c.requests = make(chan clientRequest)
 	c.exiting = exiting
 
-	handlers := map[string]rpcHandler{}
 	go (&wsConn{
 		conn:             conn,
 		connFactory:      connFactory,
 		reconnectBackoff: config.reconnectBackoff,
-		handler:          handlers,
+		handler:          nil,
 		requests:         c.requests,
 		stop:             stop,
 		exiting:          exiting,
@@ -345,6 +346,16 @@ func (fn *rpcFunc) handleRpcCall(args []reflect.Value) (results []reflect.Value)
 	id := atomic.AddInt64(&fn.client.idCtr, 1)
 	params := make([]param, len(args)-fn.hasCtx)
 	for i, arg := range args[fn.hasCtx:] {
+		enc, found := fn.client.paramEncoders[arg.Type()]
+		if found {
+			// custom param encoder
+			var err error
+			arg, err = enc(arg)
+			if err != nil {
+				return fn.processError(fmt.Errorf("sendRequest failed: %w", err))
+			}
+		}
+
 		params[i] = param{
 			v: arg,
 		}

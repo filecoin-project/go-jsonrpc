@@ -2,10 +2,14 @@ package jsonrpc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"net"
 	"net/http/httptest"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -757,4 +761,65 @@ func testControlChanDeadlock(t *testing.T) {
 	_, err = client.Sub(ctx, 2, -1)
 	require.NoError(t, err)
 	<-done
+}
+
+type InterfaceHandler struct {
+}
+
+func (h *InterfaceHandler) ReadAll(ctx context.Context, r io.Reader) ([]byte, error) {
+	return ioutil.ReadAll(r)
+}
+
+func TestInterfaceHandler(t *testing.T) {
+	var client struct {
+		ReadAll func(ctx context.Context, r io.Reader) ([]byte, error)
+	}
+
+	serverHandler := &InterfaceHandler{}
+
+	rpcServer := NewServer(WithParamDecoder(new(io.Reader), readerDec))
+	rpcServer.Register("InterfaceHandler", serverHandler)
+
+	testServ := httptest.NewServer(rpcServer)
+	defer testServ.Close()
+
+	closer, err := NewMergeClient("ws://"+testServ.Listener.Addr().String(), "InterfaceHandler", []interface{}{&client}, nil, WithParamEncoder(new(io.Reader), readerEnc))
+	require.NoError(t, err)
+
+	defer closer()
+
+	read, err := client.ReadAll(context.TODO(), strings.NewReader("pooooootato"))
+	require.NoError(t, err)
+	require.Equal(t, "pooooootato", string(read), "potatos weren't equal")
+}
+
+var (
+	readerRegistery   = map[int]io.Reader{}
+	readerRegisteryN  = 31
+	readerRegisteryLk sync.Mutex
+)
+
+func readerEnc(rin reflect.Value) (reflect.Value, error) {
+	reader := rin.Interface().(io.Reader)
+
+	readerRegisteryLk.Lock()
+	defer readerRegisteryLk.Unlock()
+
+	n := readerRegisteryN
+	readerRegisteryN++
+
+	readerRegistery[n] = reader
+	return reflect.ValueOf(n), nil
+}
+
+func readerDec(rin []byte) (reflect.Value, error) {
+	var id int
+	if err := json.Unmarshal(rin, &id); err != nil {
+		return reflect.Value{}, err
+	}
+
+	readerRegisteryLk.Lock()
+	defer readerRegisteryLk.Unlock()
+
+	return reflect.ValueOf(readerRegistery[id]), nil
 }
