@@ -812,7 +812,7 @@ func readerEnc(rin reflect.Value) (reflect.Value, error) {
 	return reflect.ValueOf(n), nil
 }
 
-func readerDec(rin []byte) (reflect.Value, error) {
+func readerDec(ctx context.Context, rin []byte) (reflect.Value, error) {
 	var id int
 	if err := json.Unmarshal(rin, &id); err != nil {
 		return reflect.Value{}, err
