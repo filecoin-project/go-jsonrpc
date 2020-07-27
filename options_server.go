@@ -1,10 +1,11 @@
 package jsonrpc
 
 import (
+	"context"
 	"reflect"
 )
 
-type ParamDecoder func(json []byte) (reflect.Value, error)
+type ParamDecoder func(ctx context.Context, json []byte) (reflect.Value, error)
 
 type ServerConfig struct {
 	paramDecoders map[reflect.Type]ParamDecoder

@@ -1,0 +1,2 @@
+This package provides param encoders / decoders for `io.Reader` which proxy
+data over temporary http endpoints

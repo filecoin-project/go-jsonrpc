@@ -203,9 +203,9 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 			rp = rp.Elem()
 		} else {
 			var err error
-			rp, err = dec(req.Params[i].data)
+			rp, err = dec(ctx, req.Params[i].data)
 			if err != nil {
-				rpcError(w, &req, rpcParseError, xerrors.Errorf("decoding params for '%s' (param: %T; custom decoder): %w", req.Method, rp.Interface(), err))
+				rpcError(w, &req, rpcParseError, xerrors.Errorf("decoding params for '%s' (param: %d; custom decoder): %w", req.Method, i, err))
 				stats.Record(ctx, metrics.RPCRequestError.M(1))
 				return
 			}
