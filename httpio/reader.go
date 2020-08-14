@@ -140,4 +140,3 @@ func ReaderParamDecoder() (http.HandlerFunc, jsonrpc.ServerOption) {
 
 	return hnd, dec
 }
-
