@@ -13,8 +13,10 @@ type ServerConfig struct {
 
 type ServerOption func(c *ServerConfig)
 
-var defaultServerConfig = ServerConfig{
-	paramDecoders: map[reflect.Type]ParamDecoder{},
+func defaultServerConfig() ServerConfig {
+	return ServerConfig{
+		paramDecoders: map[reflect.Type]ParamDecoder{},
+	}
 }
 
 func WithParamDecoder(t interface{}, decoder ParamDecoder) ServerOption {

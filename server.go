@@ -26,7 +26,7 @@ type RPCServer struct {
 
 // NewServer creates new RPCServer instance
 func NewServer(opts ...ServerOption) *RPCServer {
-	config := defaultServerConfig
+	config := defaultServerConfig()
 	for _, o := range opts {
 		o(&config)
 	}

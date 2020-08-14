@@ -19,14 +19,16 @@ type Config struct {
 	proxyConnFactory func(func() (*websocket.Conn, error)) func() (*websocket.Conn, error) // for testing
 }
 
-var defaultConfig = Config{
-	reconnectBackoff: backoff{
-		minDelay: 100 * time.Millisecond,
-		maxDelay: 5 * time.Second,
-	},
-	writeTimeout: 30 * time.Second,
+func defaultConfig() Config {
+	return Config{
+		reconnectBackoff: backoff{
+			minDelay: 100 * time.Millisecond,
+			maxDelay: 5 * time.Second,
+		},
+		writeTimeout: 30 * time.Second,
 
-	paramEncoders: map[reflect.Type]ParamEncoder{},
+		paramEncoders: map[reflect.Type]ParamEncoder{},
+	}
 }
 
 type Option func(c *Config)
