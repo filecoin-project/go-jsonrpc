@@ -96,6 +96,7 @@ func NewMergeClient(addr string, namespace string, outs []interface{}, requestHe
 	}
 
 	if config.proxyConnFactory != nil {
+		// used in tests
 		connFactory = config.proxyConnFactory(connFactory)
 	}
 
@@ -118,6 +119,7 @@ func NewMergeClient(addr string, namespace string, outs []interface{}, requestHe
 		conn:             conn,
 		connFactory:      connFactory,
 		reconnectBackoff: config.reconnectBackoff,
+		writeTimeout:     config.writeTimeout,
 		handler:          nil,
 		requests:         c.requests,
 		stop:             stop,

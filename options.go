@@ -11,6 +11,7 @@ type ParamEncoder func(reflect.Value) (reflect.Value, error)
 
 type Config struct {
 	reconnectBackoff backoff
+	writeTimeout     time.Duration
 
 	paramEncoders map[reflect.Type]ParamEncoder
 
@@ -22,6 +23,7 @@ var defaultConfig = Config{
 		minDelay: 100 * time.Millisecond,
 		maxDelay: 5 * time.Second,
 	},
+	writeTimeout: 30 * time.Second,
 
 	paramEncoders: map[reflect.Type]ParamEncoder{},
 }
@@ -34,6 +36,12 @@ func WithReconnectBackoff(minDelay, maxDelay time.Duration) func(c *Config) {
 			minDelay: minDelay,
 			maxDelay: maxDelay,
 		}
+	}
+}
+
+func WithWriteTimeout(d time.Duration) func(c *Config) {
+	return func(c *Config) {
+		c.writeTimeout = d
 	}
 }
 

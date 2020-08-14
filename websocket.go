@@ -46,6 +46,7 @@ type wsConn struct {
 	conn             *websocket.Conn
 	connFactory      func() (*websocket.Conn, error)
 	reconnectBackoff backoff
+	writeTimeout     time.Duration
 	handler          *RPCServer
 	requests         <-chan clientRequest
 	stop             <-chan struct{}
@@ -125,6 +126,11 @@ func (c *wsConn) nextWriter(cb func(io.Writer)) {
 func (c *wsConn) sendRequest(req request) error {
 	c.writeLk.Lock()
 	defer c.writeLk.Unlock()
+
+	if err := c.conn.SetWriteDeadline(time.Now().Add(c.writeTimeout)); err != nil {
+		return err
+	}
+
 	if err := c.conn.WriteJSON(req); err != nil {
 		return err
 	}
