@@ -9,5 +9,6 @@ require (
 	github.com/ipfs/go-log/v2 v2.0.8
 	github.com/stretchr/testify v1.5.1
 	go.opencensus.io v0.22.3
+	go.uber.org/zap v1.14.1
 	golang.org/x/xerrors v0.0.0-20191204190536-9bdfabe68543
 )
