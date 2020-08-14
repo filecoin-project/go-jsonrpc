@@ -13,6 +13,8 @@ import (
 	"go.opencensus.io/tag"
 	"go.opencensus.io/trace"
 	"go.opencensus.io/trace/propagation"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-jsonrpc/metrics"
@@ -121,7 +123,7 @@ func doCall(methodName string, f reflect.Value, params []reflect.Value) (out []r
 	defer func() {
 		if i := recover(); i != nil {
 			err = xerrors.Errorf("panic in rpc method '%s': %s", methodName, i)
-			log.Error(err)
+			log.Desugar().WithOptions(zap.AddStacktrace(zapcore.ErrorLevel)).Sugar().Error(err)
 		}
 	}()
 
