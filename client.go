@@ -105,6 +105,10 @@ func NewMergeClient(addr string, namespace string, outs []interface{}, requestHe
 		return nil, err
 	}
 
+	if config.noReconnect {
+		connFactory = nil
+	}
+
 	c := client{
 		namespace:     namespace,
 		paramEncoders: config.paramEncoders,
