@@ -15,7 +15,7 @@ type Config struct {
 
 	paramEncoders map[reflect.Type]ParamEncoder
 
-	noReconnect bool
+	noReconnect      bool
 	proxyConnFactory func(func() (*websocket.Conn, error)) func() (*websocket.Conn, error) // for testing
 }
 
@@ -25,7 +25,6 @@ var defaultConfig = Config{
 		maxDelay: 5 * time.Second,
 	},
 	writeTimeout: 30 * time.Second,
-
 
 	paramEncoders: map[reflect.Type]ParamEncoder{},
 }
