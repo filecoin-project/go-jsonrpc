@@ -23,7 +23,9 @@ import (
 )
 
 func init() {
-	logging.SetLogLevel("rpc", "DEBUG")
+	if err := logging.SetLogLevel("rpc", "DEBUG"); err != nil {
+		panic(err)
+	}
 }
 
 type SimpleServerHandler struct {
