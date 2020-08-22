@@ -23,7 +23,9 @@ import (
 )
 
 func init() {
-	logging.SetLogLevel("rpc", "DEBUG")
+	if err := logging.SetLogLevel("rpc", "DEBUG"); err != nil {
+		panic(err)
+	}
 }
 
 type SimpleServerHandler struct {
@@ -89,7 +91,7 @@ func TestReconnection(t *testing.T) {
 	// record the number of connection attempts during this test
 	connectionAttempts := 1
 
-	closer, err := NewMergeClient("ws://"+testServ.Listener.Addr().String(), "SimpleServerHandler", []interface{}{&rpcClient}, nil, func(c *Config) {
+	closer, err := NewMergeClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "SimpleServerHandler", []interface{}{&rpcClient}, nil, func(c *Config) {
 		c.proxyConnFactory = func(f func() (*websocket.Conn, error)) func() (*websocket.Conn, error) {
 			return func() (*websocket.Conn, error) {
 				defer func() {
@@ -147,7 +149,7 @@ func TestRPC(t *testing.T) {
 		StringMatch func(t TestType, i2 int64) (out TestOut, err error)
 		ErrChanSub  func(context.Context) (<-chan int, error)
 	}
-	closer, err := NewClient("ws://"+testServ.Listener.Addr().String(), "SimpleServerHandler", &client, nil)
+	closer, err := NewClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "SimpleServerHandler", &client, nil)
 	require.NoError(t, err)
 	defer closer()
 
@@ -192,7 +194,7 @@ func TestRPC(t *testing.T) {
 	var noret struct {
 		Add func(int)
 	}
-	closer, err = NewClient("ws://"+testServ.Listener.Addr().String(), "SimpleServerHandler", &noret, nil)
+	closer, err = NewClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "SimpleServerHandler", &noret, nil)
 	require.NoError(t, err)
 
 	// this one should actually work
@@ -203,7 +205,7 @@ func TestRPC(t *testing.T) {
 	var noparam struct {
 		Add func()
 	}
-	closer, err = NewClient("ws://"+testServ.Listener.Addr().String(), "SimpleServerHandler", &noparam, nil)
+	closer, err = NewClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "SimpleServerHandler", &noparam, nil)
 	require.NoError(t, err)
 
 	// shouldn't panic
@@ -213,7 +215,7 @@ func TestRPC(t *testing.T) {
 	var erronly struct {
 		AddGet func() (int, error)
 	}
-	closer, err = NewClient("ws://"+testServ.Listener.Addr().String(), "SimpleServerHandler", &erronly, nil)
+	closer, err = NewClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "SimpleServerHandler", &erronly, nil)
 	require.NoError(t, err)
 
 	_, err = erronly.AddGet()
@@ -225,7 +227,7 @@ func TestRPC(t *testing.T) {
 	var wrongtype struct {
 		Add func(string) error
 	}
-	closer, err = NewClient("ws://"+testServ.Listener.Addr().String(), "SimpleServerHandler", &wrongtype, nil)
+	closer, err = NewClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "SimpleServerHandler", &wrongtype, nil)
 	require.NoError(t, err)
 
 	err = wrongtype.Add("not an int")
@@ -237,7 +239,7 @@ func TestRPC(t *testing.T) {
 	var notfound struct {
 		NotThere func(string) error
 	}
-	closer, err = NewClient("ws://"+testServ.Listener.Addr().String(), "SimpleServerHandler", &notfound, nil)
+	closer, err = NewClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "SimpleServerHandler", &notfound, nil)
 	require.NoError(t, err)
 
 	err = notfound.NotThere("hello?")
@@ -284,7 +286,7 @@ func TestCtx(t *testing.T) {
 	var client struct {
 		Test func(ctx context.Context)
 	}
-	closer, err := NewClient("ws://"+testServ.Listener.Addr().String(), "CtxHandler", &client, nil)
+	closer, err := NewClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "CtxHandler", &client, nil)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
@@ -305,7 +307,7 @@ func TestCtx(t *testing.T) {
 	var noCtxClient struct {
 		Test func()
 	}
-	closer, err = NewClient("ws://"+testServ.Listener.Addr().String(), "CtxHandler", &noCtxClient, nil)
+	closer, err = NewClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "CtxHandler", &noCtxClient, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,7 +347,7 @@ func TestUnmarshalableResult(t *testing.T) {
 	testServ := httptest.NewServer(rpcServer)
 	defer testServ.Close()
 
-	closer, err := NewClient("ws://"+testServ.Listener.Addr().String(), "Handler", &client, nil)
+	closer, err := NewClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "Handler", &client, nil)
 	require.NoError(t, err)
 	defer closer()
 
@@ -412,7 +414,7 @@ func TestChan(t *testing.T) {
 	testServ := httptest.NewServer(rpcServer)
 	defer testServ.Close()
 
-	closer, err := NewClient("ws://"+testServ.Listener.Addr().String(), "ChanHandler", &client, nil)
+	closer, err := NewClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "ChanHandler", &client, nil)
 	require.NoError(t, err)
 
 	defer closer()
@@ -483,7 +485,7 @@ func TestChanClosing(t *testing.T) {
 	testServ := httptest.NewServer(rpcServer)
 	defer testServ.Close()
 
-	closer, err := NewClient("ws://"+testServ.Listener.Addr().String(), "ChanHandler", &client, nil)
+	closer, err := NewClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "ChanHandler", &client, nil)
 	require.NoError(t, err)
 
 	defer closer()
@@ -538,7 +540,7 @@ func TestChanServerClose(t *testing.T) {
 		return tctx
 	}
 
-	closer, err := NewClient("ws://"+testServ.Listener.Addr().String(), "ChanHandler", &client, nil)
+	closer, err := NewClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "ChanHandler", &client, nil)
 	require.NoError(t, err)
 
 	defer closer()
@@ -590,7 +592,7 @@ func TestServerChanLockClose(t *testing.T) {
 
 	var closeConn func() error
 
-	_, err := NewMergeClient("ws://"+testServ.Listener.Addr().String(),
+	_, err := NewMergeClient(context.Background(), "ws://"+testServ.Listener.Addr().String(),
 		"ChanHandler",
 		[]interface{}{&client}, nil,
 		func(c *Config) {
@@ -669,7 +671,7 @@ func TestChanClientReceiveAll(t *testing.T) {
 		return tctx
 	}
 
-	closer, err := NewClient("ws://"+testServ.Listener.Addr().String(), "ChanHandler", &client, nil)
+	closer, err := NewClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "ChanHandler", &client, nil)
 	require.NoError(t, err)
 
 	defer closer()
@@ -725,7 +727,7 @@ func testControlChanDeadlock(t *testing.T) {
 	testServ := httptest.NewServer(rpcServer)
 	defer testServ.Close()
 
-	closer, err := NewClient("ws://"+testServ.Listener.Addr().String(), "ChanHandler", &client, nil)
+	closer, err := NewClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "ChanHandler", &client, nil)
 	require.NoError(t, err)
 
 	defer closer()
@@ -783,7 +785,7 @@ func TestInterfaceHandler(t *testing.T) {
 	testServ := httptest.NewServer(rpcServer)
 	defer testServ.Close()
 
-	closer, err := NewMergeClient("ws://"+testServ.Listener.Addr().String(), "InterfaceHandler", []interface{}{&client}, nil, WithParamEncoder(new(io.Reader), readerEnc))
+	closer, err := NewMergeClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "InterfaceHandler", []interface{}{&client}, nil, WithParamEncoder(new(io.Reader), readerEnc))
 	require.NoError(t, err)
 
 	defer closer()

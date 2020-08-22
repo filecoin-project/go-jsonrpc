@@ -281,11 +281,13 @@ func (c *wsConn) handleChanOut(ch reflect.Value, req int64) error {
 func (c *wsConn) handleCtxAsync(actx context.Context, id int64) {
 	<-actx.Done()
 
-	c.sendRequest(request{
+	if err := c.sendRequest(request{
 		Jsonrpc: "2.0",
 		Method:  wsCancel,
 		Params:  []param{{v: reflect.ValueOf(id)}},
-	})
+	}); err != nil {
+		log.Warnw("failed to send request", "method", wsCancel, "id", id, "error", err.Error())
+	}
 }
 
 // cancelCtx is a built-in rpc which handles context cancellation over rpc
@@ -574,6 +576,12 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 								var err error
 								if conn, err = c.connFactory(); err != nil {
 									log.Debugw("websocket connection retry failed", "error", err)
+								}
+								select {
+								case <-ctx.Done():
+									break
+								default:
+									continue
 								}
 								attempts++
 							}
