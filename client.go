@@ -69,8 +69,8 @@ type ClientCloser func()
 // handler must be pointer to a struct with function fields
 // Returned value closes the client connection
 // TODO: Example
-func NewClient(addr string, namespace string, handler interface{}, requestHeader http.Header) (ClientCloser, error) {
-	return NewMergeClient(addr, namespace, []interface{}{handler}, requestHeader)
+func NewClient(ctx context.Context, addr string, namespace string, handler interface{}, requestHeader http.Header) (ClientCloser, error) {
+	return NewMergeClient(ctx, addr, namespace, []interface{}{handler}, requestHeader)
 }
 
 type client struct {
@@ -84,7 +84,7 @@ type client struct {
 
 // NewMergeClient is like NewClient, but allows to specify multiple structs
 // to be filled in the same namespace, using one connection
-func NewMergeClient(addr string, namespace string, outs []interface{}, requestHeader http.Header, opts ...Option) (ClientCloser, error) {
+func NewMergeClient(ctx context.Context, addr string, namespace string, outs []interface{}, requestHeader http.Header, opts ...Option) (ClientCloser, error) {
 	config := defaultConfig()
 	for _, o := range opts {
 		o(&config)
@@ -129,7 +129,7 @@ func NewMergeClient(addr string, namespace string, outs []interface{}, requestHe
 		requests:         c.requests,
 		stop:             stop,
 		exiting:          exiting,
-	}).handleWsConn(context.TODO())
+	}).handleWsConn(ctx)
 
 	for _, handler := range outs {
 		htyp := reflect.TypeOf(handler)

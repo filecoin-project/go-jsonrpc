@@ -575,6 +575,12 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 								if conn, err = c.connFactory(); err != nil {
 									log.Debugw("websocket connection retry failed", "error", err)
 								}
+								select {
+								case <-ctx.Done():
+									break
+								default:
+									continue
+								}
 								attempts++
 							}
 
