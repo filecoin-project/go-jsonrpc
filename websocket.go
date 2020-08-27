@@ -531,7 +531,9 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 	// setup pings
 
 	stopPings := c.setupPings()
-	defer stopPings()
+	defer func() {
+		stopPings()
+	}()
 
 	var timeoutTimer *time.Timer
 	if c.timeout != 0 {
