@@ -85,6 +85,9 @@ type client struct {
 // NewMergeClient is like NewClient, but allows to specify multiple structs
 // to be filled in the same namespace, using one connection
 func NewMergeClient(ctx context.Context, addr string, namespace string, outs []interface{}, requestHeader http.Header, opts ...Option) (ClientCloser, error) {
+	// ======================= custom log ==================================
+	log.Infof("Start New jsonRPC Client to %s", addr)
+	// ======================= custom log ==================================
 	config := defaultConfig()
 	for _, o := range opts {
 		o(&config)
@@ -118,7 +121,6 @@ func NewMergeClient(ctx context.Context, addr string, namespace string, outs []i
 	exiting := make(chan struct{})
 	c.requests = make(chan clientRequest)
 	c.exiting = exiting
-
 	go (&wsConn{
 		conn:             conn,
 		connFactory:      connFactory,
@@ -154,6 +156,9 @@ func NewMergeClient(ctx context.Context, addr string, namespace string, outs []i
 	}
 
 	return func() {
+		// ======================= custom log ==================================
+
+		// ======================= custom log ==================================
 		close(stop)
 		<-exiting
 	}, nil
