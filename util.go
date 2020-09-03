@@ -79,3 +79,8 @@ func (b *backoff) next(attempt int) time.Duration {
 
 	return delay
 }
+func LogUnderControl(line string, args ...interface{}) {
+	if true {
+		log.Infof("== WS == "+line, args...)
+	}
+}

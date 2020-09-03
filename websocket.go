@@ -329,6 +329,11 @@ func (c *wsConn) handleChanMessage(frame frame) {
 	}
 
 	hnd(frame.Params[1].data, true)
+	// =================== custom log =======================
+	var chmsg string
+	json.Unmarshal(frame.Params[1].data, &chmsg)
+	LogUnderControl("Get a rpc channel %s message %s from %s", chid, chmsg, c.conn.RemoteAddr().String())
+	// =================== custom log =======================
 }
 
 func (c *wsConn) handleChanClose(frame frame) {
@@ -347,6 +352,9 @@ func (c *wsConn) handleChanClose(frame frame) {
 	delete(c.chanHandlers, chid)
 
 	hnd(nil, false)
+	// =================== custom log =======================
+	LogUnderControl("Close a rpc channel %s from %s", chid, c.conn.RemoteAddr().String())
+	// =================== custom log =======================
 }
 
 func (c *wsConn) handleResponse(frame frame) {
@@ -367,6 +375,10 @@ func (c *wsConn) handleResponse(frame frame) {
 		var chanCtx context.Context
 		chanCtx, c.chanHandlers[chid] = req.retCh()
 		go c.handleCtxAsync(chanCtx, *frame.ID)
+		// =================== custom log =======================
+
+		LogUnderControl("Build a channel %s from %s", chid, c.conn.RemoteAddr().String())
+		// =================== custom log =======================
 	}
 
 	req.ready <- clientResponse{
@@ -375,6 +387,9 @@ func (c *wsConn) handleResponse(frame frame) {
 		ID:      *frame.ID,
 		Error:   frame.Error,
 	}
+	// =================== custom log =======================
+	LogUnderControl("Get a rpc request result %v for req %v from %s", frame, req, c.conn.RemoteAddr().String())
+	// =================== custom log =======================
 	delete(c.inflight, *frame.ID)
 }
 
@@ -421,6 +436,9 @@ func (c *wsConn) handleCall(ctx context.Context, frame frame) {
 	}
 
 	go c.handler.handle(ctx, req, nextWriter, rpcError, done, c.handleChanOut)
+	// =================== custom log =======================
+	LogUnderControl("Get a rpc call %v", req)
+	// =================== custom log =======================
 }
 
 // handleFrame handles all incoming messages (calls and responses)
@@ -481,6 +499,9 @@ func (c *wsConn) setupPings() func() {
 	c.conn.SetPongHandler(func(appData string) error {
 		select {
 		case c.pongs <- struct{}{}:
+			// ======================= custom log ==================================
+			LogUnderControl("Get pong from %s", c.conn.RemoteAddr())
+			// ======================= custom log ==================================
 		default:
 		}
 		return nil
@@ -496,6 +517,9 @@ func (c *wsConn) setupPings() func() {
 				if err := c.conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
 					log.Errorf("sending ping message: %+v", err)
 				}
+				// ======================= custom log ==================================
+				log.Infof("Send ping to %s", c.conn.RemoteAddr())
+				// ======================= custom log ==================================
 				c.writeLk.Unlock()
 			case <-stop:
 				return
@@ -558,6 +582,9 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 				if c.incomingErr != nil {
 					if !websocket.IsCloseError(c.incomingErr, websocket.CloseNormalClosure) {
 						log.Debugw("websocket error", "error", c.incomingErr)
+						// ======================= custom log ==================================
+						log.Infof("Incoming with websocket error,%s", c.incomingErr)
+						// ======================= custom log ==================================
 						// connection dropped unexpectedly, do our best to recover it
 						c.closeInFlight()
 						c.closeChans()
@@ -599,6 +626,9 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 						continue
 					}
 				}
+				// ======================= custom log ==================================
+				LogUnderControl("Remote close from %s", c.conn.RemoteAddr())
+				// ======================= custom log ==================================
 				return // remote closed
 			}
 
@@ -617,6 +647,9 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 			c.writeLk.Lock()
 			if req.req.ID != nil {
 				if c.incomingErr != nil { // No conn?, immediate fail
+					// ======================= custom log ==================================
+					LogUnderControl("Send request %v to %s error,%s", req, c.conn.RemoteAddr(), c.incomingErr)
+					// ======================= custom log ==================================
 					req.ready <- clientResponse{
 						Jsonrpc: "2.0",
 						ID:      *req.req.ID,
@@ -629,6 +662,9 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 					break
 				}
 				c.inflight[*req.req.ID] = req
+				// ======================= custom log ==================================
+				LogUnderControl("Send request %v to %s", req, c.conn.RemoteAddr())
+				// ======================= custom log ==================================
 			}
 			c.writeLk.Unlock()
 			if err := c.sendRequest(req.req); err != nil {
@@ -652,10 +688,16 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 			}
 			c.writeLk.Unlock()
 			log.Errorw("Connection timeout", "remote", c.conn.RemoteAddr())
+			// ======================= custom log ==================================
+			LogUnderControl("Connection timeout to %s", c.conn.RemoteAddr())
+			// ======================= custom log ==================================
 			return
 		case <-c.stop:
 			c.writeLk.Lock()
 			cmsg := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")
+			// ======================= custom log ==================================
+			LogUnderControl("Close Connect to %s,Send close msg", c.conn.RemoteAddr())
+			// ======================= custom log ==================================
 			if err := c.conn.WriteMessage(websocket.CloseMessage, cmsg); err != nil {
 				log.Warn("failed to write close message: ", err)
 			}
