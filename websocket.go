@@ -391,9 +391,7 @@ func (c *wsConn) handleResponse(frame frame) {
 	if frame.Error != nil {
 		LogUnderControl("Get a rpc request error result %v for req %v from %s", frame.Error.Error(), req, c.conn.RemoteAddr().String())
 	} else {
-		var unmarshalResult []byte
-		frame.Result.UnmarshalJSON(unmarshalResult)
-		LogUnderControl("Get a rpc request result %v for req %v from %s", string(unmarshalResult), req, c.conn.RemoteAddr().String())
+		LogUnderControl("Get a rpc request result %v for req %v from %s", string(frame.Result), req, c.conn.RemoteAddr().String())
 	}
 
 	// =================== custom log =======================
