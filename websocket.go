@@ -388,7 +388,14 @@ func (c *wsConn) handleResponse(frame frame) {
 		Error:   frame.Error,
 	}
 	// =================== custom log =======================
-	LogUnderControl("Get a rpc request result %v for req %v from %s", frame, req, c.conn.RemoteAddr().String())
+	if frame.Error != nil {
+		LogUnderControl("Get a rpc request error result %v for req %v from %s", frame.Error.Error(), req, c.conn.RemoteAddr().String())
+	} else {
+		var unmarshalResult []byte
+		frame.Result.UnmarshalJSON(unmarshalResult)
+		LogUnderControl("Get a rpc request result %v for req %v from %s", string(unmarshalResult), req, c.conn.RemoteAddr().String())
+	}
+
 	// =================== custom log =======================
 	delete(c.inflight, *frame.ID)
 }
@@ -663,7 +670,7 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 				}
 				c.inflight[*req.req.ID] = req
 				// ======================= custom log ==================================
-				LogUnderControl("Send request %v to %s", req, c.conn.RemoteAddr())
+				LogUnderControl("Send request %v to %s", req.req, c.conn.RemoteAddr())
 				// ======================= custom log ==================================
 			}
 			c.writeLk.Unlock()
