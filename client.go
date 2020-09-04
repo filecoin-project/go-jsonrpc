@@ -86,7 +86,7 @@ type client struct {
 // to be filled in the same namespace, using one connection
 func NewMergeClient(ctx context.Context, addr string, namespace string, outs []interface{}, requestHeader http.Header, opts ...Option) (ClientCloser, error) {
 	// ======================= custom log ==================================
-	log.Infof("Start New jsonRPC Client to %s", addr)
+	LogUnderControl("Start New jsonRPC Client to %s", addr)
 	// ======================= custom log ==================================
 	config := defaultConfig()
 	for _, o := range opts {
@@ -156,9 +156,6 @@ func NewMergeClient(ctx context.Context, addr string, namespace string, outs []i
 	}
 
 	return func() {
-		// ======================= custom log ==================================
-
-		// ======================= custom log ==================================
 		close(stop)
 		<-exiting
 	}, nil

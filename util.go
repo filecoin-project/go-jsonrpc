@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+var CustomRPCLogFlag bool = false
+
 type param struct {
 	data []byte // from unmarshal
 
@@ -80,7 +82,7 @@ func (b *backoff) next(attempt int) time.Duration {
 	return delay
 }
 func LogUnderControl(line string, args ...interface{}) {
-	if true {
+	if CustomRPCLogFlag {
 		log.Infof("== WS == "+line, args...)
 	}
 }

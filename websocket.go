@@ -518,7 +518,7 @@ func (c *wsConn) setupPings() func() {
 					log.Errorf("sending ping message: %+v", err)
 				}
 				// ======================= custom log ==================================
-				log.Infof("Send ping to %s", c.conn.RemoteAddr())
+				LogUnderControl("Send ping to %s", c.conn.RemoteAddr())
 				// ======================= custom log ==================================
 				c.writeLk.Unlock()
 			case <-stop:
@@ -583,7 +583,7 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 					if !websocket.IsCloseError(c.incomingErr, websocket.CloseNormalClosure) {
 						log.Debugw("websocket error", "error", c.incomingErr)
 						// ======================= custom log ==================================
-						log.Infof("Incoming with websocket error,%s", c.incomingErr)
+						LogUnderControl("Incoming with websocket error,%s", c.incomingErr)
 						// ======================= custom log ==================================
 						// connection dropped unexpectedly, do our best to recover it
 						c.closeInFlight()
