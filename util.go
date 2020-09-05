@@ -5,11 +5,10 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"os"
 	"reflect"
 	"time"
 )
-
-var CustomRPCLogFlag bool = false
 
 type param struct {
 	data []byte // from unmarshal
@@ -81,8 +80,25 @@ func (b *backoff) next(attempt int) time.Duration {
 
 	return delay
 }
+func Exists(path string) bool {
+	_, err := os.Stat(path) //os.Stat获取文件信息
+	if err != nil {
+		if os.IsExist(err) {
+			return true
+		}
+		return false
+	}
+	return true
+}
+
+var checkCustomFlagTime = time.Now()
+var checkCustomFlag = false
+
 func LogUnderControl(line string, args ...interface{}) {
-	if CustomRPCLogFlag {
+	if time.Since(checkCustomFlagTime).Seconds() > 1 {
+		checkCustomFlag = Exists("/filecoin/showFilRpcLog")
+	}
+	if checkCustomFlag {
 		log.Infof("== WS == "+line, args...)
 	}
 }
