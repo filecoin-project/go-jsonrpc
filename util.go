@@ -93,12 +93,13 @@ func Exists(path string) bool {
 
 var checkCustomFlagTime = time.Now()
 var checkCustomFlag = false
+var CommandLogFlag = false
 
 func LogUnderControl(line string, args ...interface{}) {
 	if time.Since(checkCustomFlagTime).Seconds() > 1 {
 		checkCustomFlag = Exists("/filecoin/showFilRpcLog")
 	}
-	if checkCustomFlag {
+	if checkCustomFlag && CommandLogFlag {
 		log.Infof("== WS == "+line, args...)
 	}
 }
