@@ -97,6 +97,7 @@ var CommandLogFlag = false
 
 func LogUnderControl(line string, args ...interface{}) {
 	if time.Since(checkCustomFlagTime).Seconds() > 1 {
+		checkCustomFlagTime = time.Now()
 		checkCustomFlag = Exists("/filecoin/showFilRpcLog")
 	}
 	if checkCustomFlag && CommandLogFlag {
