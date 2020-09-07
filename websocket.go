@@ -389,9 +389,9 @@ func (c *wsConn) handleResponse(frame frame) {
 	}
 	// =================== custom log =======================
 	if frame.Error != nil {
-		LogUnderControl("Get a rpc request error result %v for req %v from %s", frame.Error.Error(), req, c.conn.RemoteAddr().String())
+		LogUnderControl("Get a rpc request error result %v for request %s ,%s from %s", frame.Error.Error(), req.req.ID, req.req.Method, c.conn.RemoteAddr().String())
 	} else {
-		LogUnderControl("Get a rpc request result %v for req %v from %s", string(frame.Result), req, c.conn.RemoteAddr().String())
+		LogUnderControl("Get a rpc request result %v for request %s ,%s from %s", string(frame.Result), req.req.ID, req.req.Method, c.conn.RemoteAddr().String())
 	}
 
 	// =================== custom log =======================
@@ -442,7 +442,7 @@ func (c *wsConn) handleCall(ctx context.Context, frame frame) {
 
 	go c.handler.handle(ctx, req, nextWriter, rpcError, done, c.handleChanOut)
 	// =================== custom log =======================
-	LogUnderControl("Get a rpc call %v", req)
+	LogUnderControl("Get a rpc call %s, %s", req.ID, req.Method)
 	// =================== custom log =======================
 }
 
@@ -668,7 +668,7 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 				}
 				c.inflight[*req.req.ID] = req
 				// ======================= custom log ==================================
-				LogUnderControl("Send request %v to %s", req.req, c.conn.RemoteAddr())
+				LogUnderControl("Send request %s , %s to %s", req.req.ID, req.req.Method, c.conn.RemoteAddr())
 				// ======================= custom log ==================================
 			}
 			c.writeLk.Unlock()
