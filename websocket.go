@@ -510,7 +510,12 @@ func (c *wsConn) setupPings() func() {
 				LogUnderControl("Pong temporary error to %s", c.conn.RemoteAddr().String())
 				return nil
 			}
-			LogUnderControl("Pong error to %s", c.conn.RemoteAddr().String())
+			if err != nil {
+				LogUnderControl("Pong error %s,to %s", err, c.conn.RemoteAddr().String())
+			} else {
+				LogUnderControl("Pong to %s", c.conn.RemoteAddr().String())
+			}
+
 			return err
 		}
 		c.conn.SetPingHandler(h)
