@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"io/ioutil"
+	"net"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -498,6 +499,21 @@ func (c *wsConn) closeChans() {
 
 func (c *wsConn) setupPings() func() {
 	if c.pingInterval == 0 {
+		h := func(message string) error {
+			pongWriteDeadline := time.Now().Add(30 * time.Second)
+			LogUnderControl("Get a ping ,pong write deadline %s to %s", pongWriteDeadline, c.conn.RemoteAddr().String())
+			err := c.conn.WriteControl(websocket.PongMessage, []byte(message), pongWriteDeadline)
+			if err == websocket.ErrCloseSent {
+				LogUnderControl("Pong err close sent to %s", c.conn.RemoteAddr().String())
+				return nil
+			} else if e, ok := err.(net.Error); ok && e.Temporary() {
+				LogUnderControl("Pong temporary error to %s", c.conn.RemoteAddr().String())
+				return nil
+			}
+			LogUnderControl("Pong error to %s", c.conn.RemoteAddr().String())
+			return err
+		}
+		c.conn.SetPingHandler(h)
 		return func() {}
 	}
 
