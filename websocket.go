@@ -500,7 +500,7 @@ func (c *wsConn) closeChans() {
 func (c *wsConn) setupPings() func() {
 	if c.pingInterval == 0 {
 		h := func(message string) error {
-			pongWriteDeadline := time.Now().Add(30 * time.Second)
+			pongWriteDeadline := time.Now().Add(120 * time.Second)
 			LogUnderControl("Get a ping ,pong write deadline %s to %s", pongWriteDeadline, c.conn.RemoteAddr().String())
 			err := c.conn.WriteControl(websocket.PongMessage, []byte(message), pongWriteDeadline)
 			if err == websocket.ErrCloseSent {

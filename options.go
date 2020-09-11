@@ -27,7 +27,7 @@ func defaultConfig() Config {
 			maxDelay: 5 * time.Second,
 		},
 		pingInterval: 5 * time.Second,
-		timeout:      30 * time.Second,
+		timeout:      120 * time.Second,
 
 		paramEncoders: map[reflect.Type]ParamEncoder{},
 	}
