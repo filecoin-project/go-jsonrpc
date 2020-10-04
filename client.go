@@ -1,12 +1,14 @@
 package jsonrpc
 
 import (
+	"bytes"
 	"container/list"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"reflect"
 	"sync/atomic"
 	"time"
@@ -77,9 +79,9 @@ type client struct {
 	namespace     string
 	paramEncoders map[reflect.Type]ParamEncoder
 
-	requests chan clientRequest
-	exiting  <-chan struct{}
-	idCtr    int64
+	doRequest func(context.Context, clientRequest) (clientResponse, error)
+	exiting   <-chan struct{}
+	idCtr     int64
 }
 
 // NewMergeClient is like NewClient, but allows to specify multiple structs
@@ -90,6 +92,86 @@ func NewMergeClient(ctx context.Context, addr string, namespace string, outs []i
 		o(&config)
 	}
 
+	u, err := url.Parse(addr)
+	if err != nil {
+		return nil, xerrors.Errorf("parsing address: %w", err)
+	}
+
+	switch u.Scheme {
+	case "ws", "wss":
+		return websocketClient(ctx, addr, namespace, outs, requestHeader, config)
+	case "http", "https":
+		return httpClient(ctx, addr, namespace, outs, requestHeader, config)
+	default:
+		return nil, xerrors.Errorf("unknown url scheme '%s'", u.Scheme)
+	}
+
+}
+
+func httpClient(ctx context.Context, addr string, namespace string, outs []interface{}, requestHeader http.Header, config Config) (ClientCloser, error) {
+	c := client{
+		namespace:     namespace,
+		paramEncoders: config.paramEncoders,
+	}
+
+	stop := make(chan struct{})
+	c.exiting = stop
+
+	if requestHeader == nil {
+		requestHeader = http.Header{}
+	}
+
+	c.doRequest = func(ctx context.Context, cr clientRequest) (clientResponse, error) {
+		b, err := json.Marshal(&cr.req)
+		if err != nil {
+			return clientResponse{}, xerrors.Errorf("mershaling requset: %w", err)
+		}
+
+		hreq, err := http.NewRequest("POST", addr, bytes.NewReader(b))
+		if err != nil {
+			return clientResponse{}, err
+		}
+
+		hreq.Header = requestHeader.Clone()
+
+		if ctx != nil {
+			hreq = hreq.WithContext(ctx)
+		}
+
+		hreq.Header.Set("Content-Type", "application/json")
+
+		httpResp, err := http.DefaultClient.Do(hreq)
+		if err != nil {
+			return clientResponse{}, err
+		}
+
+		var resp clientResponse
+
+		if err := json.NewDecoder(httpResp.Body).Decode(&resp); err != nil {
+			return clientResponse{}, xerrors.Errorf("unmarshaling response: %w", err)
+		}
+
+		if err := httpResp.Body.Close(); err != nil {
+			return clientResponse{}, err
+		}
+
+		if resp.ID != *cr.req.ID {
+			return clientResponse{}, xerrors.New("request and response id didn't match")
+		}
+
+		return resp, nil
+	}
+
+	if err := c.provide(outs); err != nil {
+		return nil, err
+	}
+
+	return func() {
+		close(stop)
+	}, nil
+}
+
+func websocketClient(ctx context.Context, addr string, namespace string, outs []interface{}, requestHeader http.Header, config Config) (ClientCloser, error) {
 	connFactory := func() (*websocket.Conn, error) {
 		conn, _, err := websocket.DefaultDialer.Dial(addr, requestHeader)
 		return conn, err
@@ -114,9 +196,52 @@ func NewMergeClient(ctx context.Context, addr string, namespace string, outs []i
 		paramEncoders: config.paramEncoders,
 	}
 
+	requests := make(chan clientRequest)
+
+	c.doRequest = func(ctx context.Context, cr clientRequest) (clientResponse, error) {
+		select {
+		case requests <- cr:
+		case <-c.exiting:
+			return clientResponse{}, fmt.Errorf("websocket routine exiting")
+		}
+
+		var ctxDone <-chan struct{}
+		var resp clientResponse
+
+		if ctx != nil {
+			ctxDone = ctx.Done()
+		}
+
+		// wait for response, handle context cancellation
+	loop:
+		for {
+			select {
+			case resp = <-cr.ready:
+				break loop
+			case <-ctxDone: // send cancel request
+				ctxDone = nil
+
+				cancelReq := clientRequest{
+					req: request{
+						Jsonrpc: "2.0",
+						Method:  wsCancel,
+						Params:  []param{{v: reflect.ValueOf(*cr.req.ID)}},
+					},
+				}
+				select {
+				case requests <- cancelReq:
+				case <-c.exiting:
+					log.Warn("failed to send request cancellation, websocket routing exited")
+				}
+
+			}
+		}
+
+		return resp, nil
+	}
+
 	stop := make(chan struct{})
 	exiting := make(chan struct{})
-	c.requests = make(chan clientRequest)
 	c.exiting = exiting
 
 	go (&wsConn{
@@ -126,19 +251,30 @@ func NewMergeClient(ctx context.Context, addr string, namespace string, outs []i
 		pingInterval:     config.pingInterval,
 		timeout:          config.timeout,
 		handler:          nil,
-		requests:         c.requests,
+		requests:         requests,
 		stop:             stop,
 		exiting:          exiting,
 	}).handleWsConn(ctx)
 
+	if err := c.provide(outs); err != nil {
+		return nil, err
+	}
+
+	return func() {
+		close(stop)
+		<-exiting
+	}, nil
+}
+
+func (c *client) provide(outs []interface{}) error {
 	for _, handler := range outs {
 		htyp := reflect.TypeOf(handler)
 		if htyp.Kind() != reflect.Ptr {
-			return nil, xerrors.New("expected handler to be a pointer")
+			return xerrors.New("expected handler to be a pointer")
 		}
 		typ := htyp.Elem()
 		if typ.Kind() != reflect.Struct {
-			return nil, xerrors.New("handler should be a struct")
+			return xerrors.New("handler should be a struct")
 		}
 
 		val := reflect.ValueOf(handler)
@@ -146,17 +282,14 @@ func NewMergeClient(ctx context.Context, addr string, namespace string, outs []i
 		for i := 0; i < typ.NumField(); i++ {
 			fn, err := c.makeRpcFunc(typ.Field(i))
 			if err != nil {
-				return nil, err
+				return err
 			}
 
 			val.Elem().Field(i).Set(fn)
 		}
 	}
 
-	return func() {
-		close(stop)
-		<-exiting
-	}, nil
+	return nil
 }
 
 func (c *client) makeOutChan(ctx context.Context, ftyp reflect.Type, valOut int) (func() reflect.Value, makeChanSink) {
@@ -256,51 +389,14 @@ func (c *client) makeOutChan(ctx context.Context, ftyp reflect.Type, valOut int)
 }
 
 func (c *client) sendRequest(ctx context.Context, req request, chCtor makeChanSink) (clientResponse, error) {
-	rchan := make(chan clientResponse, 1)
 	creq := clientRequest{
 		req:   req,
-		ready: rchan,
+		ready: make(chan clientResponse, 1),
 
 		retCh: chCtor,
 	}
-	select {
-	case c.requests <- creq:
-	case <-c.exiting:
-		return clientResponse{}, fmt.Errorf("websocket routine exiting")
-	}
 
-	var ctxDone <-chan struct{}
-	var resp clientResponse
-
-	if ctx != nil {
-		ctxDone = ctx.Done()
-	}
-
-	// wait for response, handle context cancellation
-loop:
-	for {
-		select {
-		case resp = <-rchan:
-			break loop
-		case <-ctxDone: // send cancel request
-			ctxDone = nil
-
-			cancelReq := clientRequest{
-				req: request{
-					Jsonrpc: "2.0",
-					Method:  wsCancel,
-					Params:  []param{{v: reflect.ValueOf(*req.ID)}},
-				},
-			}
-			select {
-			case c.requests <- cancelReq:
-			case <-c.exiting:
-				log.Warn("failed to send request cancellation, websocket routing exited")
-			}
-		}
-	}
-
-	return resp, nil
+	return c.doRequest(ctx, creq)
 }
 
 type rpcFunc struct {
