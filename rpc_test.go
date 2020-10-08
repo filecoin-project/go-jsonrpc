@@ -249,6 +249,117 @@ func TestRPC(t *testing.T) {
 	closer()
 }
 
+func TestRPCHttpClient(t *testing.T) {
+	// setup server
+
+	serverHandler := &SimpleServerHandler{}
+
+	rpcServer := NewServer()
+	rpcServer.Register("SimpleServerHandler", serverHandler)
+
+	// httptest stuff
+	testServ := httptest.NewServer(rpcServer)
+	defer testServ.Close()
+	// setup client
+
+	var client struct {
+		Add         func(int) error
+		AddGet      func(int) int
+		StringMatch func(t TestType, i2 int64) (out TestOut, err error)
+	}
+	closer, err := NewClient(context.Background(), "http://"+testServ.Listener.Addr().String(), "SimpleServerHandler", &client, nil)
+	require.NoError(t, err)
+	defer closer()
+
+	// Add(int) error
+
+	require.NoError(t, client.Add(2))
+	require.Equal(t, 2, serverHandler.n)
+
+	err = client.Add(-3546)
+	require.EqualError(t, err, "test")
+
+	// AddGet(int) int
+
+	n := client.AddGet(3)
+	require.Equal(t, 5, n)
+	require.Equal(t, 5, serverHandler.n)
+
+	// StringMatch
+
+	o, err := client.StringMatch(TestType{S: "0"}, 0)
+	require.NoError(t, err)
+	require.Equal(t, "0", o.S)
+	require.Equal(t, 0, o.I)
+
+	_, err = client.StringMatch(TestType{S: "5"}, 5)
+	require.EqualError(t, err, ":(")
+
+	o, err = client.StringMatch(TestType{S: "8", I: 8}, 8)
+	require.NoError(t, err)
+	require.Equal(t, "8", o.S)
+	require.Equal(t, 8, o.I)
+
+	// Invalid client handlers
+
+	var noret struct {
+		Add func(int)
+	}
+	closer, err = NewClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "SimpleServerHandler", &noret, nil)
+	require.NoError(t, err)
+
+	// this one should actually work
+	noret.Add(4)
+	require.Equal(t, 9, serverHandler.n)
+	closer()
+
+	var noparam struct {
+		Add func()
+	}
+	closer, err = NewClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "SimpleServerHandler", &noparam, nil)
+	require.NoError(t, err)
+
+	// shouldn't panic
+	noparam.Add()
+	closer()
+
+	var erronly struct {
+		AddGet func() (int, error)
+	}
+	closer, err = NewClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "SimpleServerHandler", &erronly, nil)
+	require.NoError(t, err)
+
+	_, err = erronly.AddGet()
+	if err == nil || err.Error() != "RPC error (-32602): wrong param count (method 'SimpleServerHandler.AddGet'): 0 != 1" {
+		t.Error("wrong error:", err)
+	}
+	closer()
+
+	var wrongtype struct {
+		Add func(string) error
+	}
+	closer, err = NewClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "SimpleServerHandler", &wrongtype, nil)
+	require.NoError(t, err)
+
+	err = wrongtype.Add("not an int")
+	if err == nil || !strings.Contains(err.Error(), "RPC error (-32700):") || !strings.Contains(err.Error(), "json: cannot unmarshal string into Go value of type int") {
+		t.Error("wrong error:", err)
+	}
+	closer()
+
+	var notfound struct {
+		NotThere func(string) error
+	}
+	closer, err = NewClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "SimpleServerHandler", &notfound, nil)
+	require.NoError(t, err)
+
+	err = notfound.NotThere("hello?")
+	if err == nil || err.Error() != "RPC error (-32601): method 'SimpleServerHandler.NotThere' not found" {
+		t.Error("wrong error:", err)
+	}
+	closer()
+}
+
 type CtxHandler struct {
 	lk sync.Mutex
 
@@ -287,6 +398,61 @@ func TestCtx(t *testing.T) {
 		Test func(ctx context.Context)
 	}
 	closer, err := NewClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "CtxHandler", &client, nil)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	client.Test(ctx)
+	serverHandler.lk.Lock()
+
+	if !serverHandler.cancelled {
+		t.Error("expected cancellation on the server side")
+	}
+
+	serverHandler.cancelled = false
+
+	serverHandler.lk.Unlock()
+	closer()
+
+	var noCtxClient struct {
+		Test func()
+	}
+	closer, err = NewClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "CtxHandler", &noCtxClient, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	noCtxClient.Test()
+
+	serverHandler.lk.Lock()
+
+	if serverHandler.cancelled || serverHandler.i != 2 {
+		t.Error("wrong serverHandler state")
+	}
+
+	serverHandler.lk.Unlock()
+	closer()
+}
+
+func TestCtxHttp(t *testing.T) {
+	// setup server
+
+	serverHandler := &CtxHandler{}
+
+	rpcServer := NewServer()
+	rpcServer.Register("CtxHandler", serverHandler)
+
+	// httptest stuff
+	testServ := httptest.NewServer(rpcServer)
+	defer testServ.Close()
+
+	// setup client
+
+	var client struct {
+		Test func(ctx context.Context)
+	}
+	closer, err := NewClient(context.Background(), "http://"+testServ.Listener.Addr().String(), "CtxHandler", &client, nil)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
