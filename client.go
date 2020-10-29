@@ -343,7 +343,7 @@ func (c *client) makeOutChan(ctx context.Context, ftyp reflect.Type, valOut int)
 							if buf.Len() > 10 {
 								log.Warnw("rpc output message buffer", "n", buf.Len())
 							} else {
-								log.Infow("rpc output message buffer", "n", buf.Len())
+								log.Debugw("rpc output message buffer", "n", buf.Len())
 							}
 						}
 					} else {
