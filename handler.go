@@ -111,7 +111,32 @@ func (s *RPCServer) handleReader(ctx context.Context, r io.Reader, w io.Writer, 
 	}
 
 	var req request
-	if err := json.NewDecoder(r).Decode(&req); err != nil {
+	// Limit request size. Ideally this limit should be specific for each field
+	// in the JSON request but as simple defensive measure we just limit the
+	// entire HTTP body.
+	MAX_REQUEST_SIZE := 10 << 10 // FIXME: Agree on a value and extract.
+	buf := new(bytes.Buffer)
+	// We use LimitReader to avoid reading over the maximum, since it won't
+	// return an EOF we can't clearly distinguish between a valid request that
+	// is exactly the MAX_REQUEST_SIZE and one that exceeds it. To get around it
+	// we try to read one extra byte to discriminate if we need to error out or
+	// not.
+	// FIXME: Maybe there's a cleaner way to do this.
+	reqSize, err := buf.ReadFrom(io.LimitReader(r, int64(MAX_REQUEST_SIZE + 1)))
+	if err != nil {
+		// ReadFrom will ignore an EOF from LimitReader so this is an unexpected
+		// error.
+		rpcError(wf, &req, rpcParseError, xerrors.Errorf("reading request: %w", err))
+		return
+	}
+	if reqSize > int64(MAX_REQUEST_SIZE) {
+		// FIXME: Do we want to define a new error or can we consider reading errors
+		//  as part of the parsing stage (`rpcParseError`) and discriminate by error string?
+		rpcError(wf, &req, rpcParseError, xerrors.Errorf("request bigger than maximum %d allowed", MAX_REQUEST_SIZE))
+		return
+	}
+
+	if err := json.NewDecoder(buf).Decode(&req); err != nil {
 		rpcError(wf, &req, rpcParseError, xerrors.Errorf("unmarshaling request: %w", err))
 		return
 	}
