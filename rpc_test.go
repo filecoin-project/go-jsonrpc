@@ -305,7 +305,7 @@ func TestRPCHttpClient(t *testing.T) {
 	var noret struct {
 		Add func(int)
 	}
-	closer, err = NewClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "SimpleServerHandler", &noret, nil)
+	closer, err = NewClient(context.Background(), "http://"+testServ.Listener.Addr().String(), "SimpleServerHandler", &noret, nil)
 	require.NoError(t, err)
 
 	// this one should actually work
@@ -316,7 +316,7 @@ func TestRPCHttpClient(t *testing.T) {
 	var noparam struct {
 		Add func()
 	}
-	closer, err = NewClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "SimpleServerHandler", &noparam, nil)
+	closer, err = NewClient(context.Background(), "http://"+testServ.Listener.Addr().String(), "SimpleServerHandler", &noparam, nil)
 	require.NoError(t, err)
 
 	// shouldn't panic
@@ -326,7 +326,7 @@ func TestRPCHttpClient(t *testing.T) {
 	var erronly struct {
 		AddGet func() (int, error)
 	}
-	closer, err = NewClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "SimpleServerHandler", &erronly, nil)
+	closer, err = NewClient(context.Background(), "http://"+testServ.Listener.Addr().String(), "SimpleServerHandler", &erronly, nil)
 	require.NoError(t, err)
 
 	_, err = erronly.AddGet()
@@ -338,7 +338,7 @@ func TestRPCHttpClient(t *testing.T) {
 	var wrongtype struct {
 		Add func(string) error
 	}
-	closer, err = NewClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "SimpleServerHandler", &wrongtype, nil)
+	closer, err = NewClient(context.Background(), "http://"+testServ.Listener.Addr().String(), "SimpleServerHandler", &wrongtype, nil)
 	require.NoError(t, err)
 
 	err = wrongtype.Add("not an int")
@@ -350,7 +350,7 @@ func TestRPCHttpClient(t *testing.T) {
 	var notfound struct {
 		NotThere func(string) error
 	}
-	closer, err = NewClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "SimpleServerHandler", &notfound, nil)
+	closer, err = NewClient(context.Background(), "http://"+testServ.Listener.Addr().String(), "SimpleServerHandler", &notfound, nil)
 	require.NoError(t, err)
 
 	err = notfound.NotThere("hello?")
