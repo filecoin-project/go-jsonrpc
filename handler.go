@@ -129,11 +129,11 @@ func (s *RPCServer) handleReader(ctx context.Context, r io.Reader, w io.Writer, 
 		// ReadFrom will ignore an EOF from LimitReader so this is an unexpected
 		// error.
 		rpcError(wf, &req, rpcParseError, xerrors.Errorf("reading request: %w", err))
+		// rpcParseError is the closest to what we want from the standard errors
+		// defined in [jsonrpc spec](https://www.jsonrpc.org/specification#error_object)
 		return
 	}
 	if reqSize > s.maxRequestSize {
-		// FIXME: Do we want to define a new error or can we consider reading errors
-		//  as part of the parsing stage (`rpcParseError`) and discriminate by error string?
 		rpcError(wf, &req, rpcParseError, xerrors.Errorf("request bigger than maximum %d allowed", s.maxRequestSize))
 		return
 	}
