@@ -8,7 +8,7 @@ import (
 type ParamDecoder func(ctx context.Context, json []byte) (reflect.Value, error)
 
 type ServerConfig struct {
-	paramDecoders map[reflect.Type]ParamDecoder
+	paramDecoders  map[reflect.Type]ParamDecoder
 	maxRequestSize int64
 }
 
@@ -16,7 +16,7 @@ type ServerOption func(c *ServerConfig)
 
 func defaultServerConfig() ServerConfig {
 	return ServerConfig{
-		paramDecoders: map[reflect.Type]ParamDecoder{},
+		paramDecoders:  map[reflect.Type]ParamDecoder{},
 		maxRequestSize: DEFAULT_MAX_REQUEST_SIZE,
 	}
 }

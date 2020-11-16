@@ -34,8 +34,8 @@ func NewServer(opts ...ServerOption) *RPCServer {
 	}
 
 	return &RPCServer{
-		methods:       map[string]rpcHandler{},
-		paramDecoders: config.paramDecoders,
+		methods:        map[string]rpcHandler{},
+		paramDecoders:  config.paramDecoders,
 		maxRequestSize: config.maxRequestSize,
 	}
 }

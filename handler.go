@@ -126,7 +126,7 @@ func (s *RPCServer) handleReader(ctx context.Context, r io.Reader, w io.Writer, 
 	// EOF we can't actually know if the client sent more than the maximum or
 	// not, so we read one byte more over the limit to explicitly query that.
 	// FIXME: Maybe there's a cleaner way to do this.
-	reqSize, err := bufferedRequest.ReadFrom(io.LimitReader(r, s.maxRequestSize + 1))
+	reqSize, err := bufferedRequest.ReadFrom(io.LimitReader(r, s.maxRequestSize+1))
 	if err != nil {
 		// ReadFrom will discard EOF so any error here is unexpected and should
 		// be reported.
