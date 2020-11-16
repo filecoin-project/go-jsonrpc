@@ -43,6 +43,12 @@ type request struct {
 	Meta    map[string]string `json:"meta,omitempty"`
 }
 
+// Limit request size. Ideally this limit should be specific for each field
+// in the JSON request but as simple defensive measure we just limit the
+// entire HTTP body.
+// Configured by WithMaxRequestSize.
+const DEFAULT_MAX_REQUEST_SIZE = 100 << 20 // 100 MiB
+
 type respError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
@@ -111,10 +117,6 @@ func (s *RPCServer) handleReader(ctx context.Context, r io.Reader, w io.Writer, 
 	}
 
 	var req request
-	// Limit request size. Ideally this limit should be specific for each field
-	// in the JSON request but as simple defensive measure we just limit the
-	// entire HTTP body.
-	MAX_REQUEST_SIZE := 10 << 10 // FIXME: Agree on a value and extract.
 	buf := new(bytes.Buffer)
 	// We use LimitReader to avoid reading over the maximum, since it won't
 	// return an EOF we can't clearly distinguish between a valid request that
@@ -122,17 +124,17 @@ func (s *RPCServer) handleReader(ctx context.Context, r io.Reader, w io.Writer, 
 	// we try to read one extra byte to discriminate if we need to error out or
 	// not.
 	// FIXME: Maybe there's a cleaner way to do this.
-	reqSize, err := buf.ReadFrom(io.LimitReader(r, int64(MAX_REQUEST_SIZE + 1)))
+	reqSize, err := buf.ReadFrom(io.LimitReader(r, s.maxRequestSize + 1))
 	if err != nil {
 		// ReadFrom will ignore an EOF from LimitReader so this is an unexpected
 		// error.
 		rpcError(wf, &req, rpcParseError, xerrors.Errorf("reading request: %w", err))
 		return
 	}
-	if reqSize > int64(MAX_REQUEST_SIZE) {
+	if reqSize > s.maxRequestSize {
 		// FIXME: Do we want to define a new error or can we consider reading errors
 		//  as part of the parsing stage (`rpcParseError`) and discriminate by error string?
-		rpcError(wf, &req, rpcParseError, xerrors.Errorf("request bigger than maximum %d allowed", MAX_REQUEST_SIZE))
+		rpcError(wf, &req, rpcParseError, xerrors.Errorf("request bigger than maximum %d allowed", s.maxRequestSize))
 		return
 	}
 
