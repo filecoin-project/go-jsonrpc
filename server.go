@@ -22,6 +22,8 @@ type RPCServer struct {
 	methods map[string]rpcHandler
 
 	paramDecoders map[reflect.Type]ParamDecoder
+
+	maxRequestSize int64
 }
 
 // NewServer creates new RPCServer instance
@@ -32,8 +34,9 @@ func NewServer(opts ...ServerOption) *RPCServer {
 	}
 
 	return &RPCServer{
-		methods:       map[string]rpcHandler{},
-		paramDecoders: config.paramDecoders,
+		methods:        map[string]rpcHandler{},
+		paramDecoders:  config.paramDecoders,
+		maxRequestSize: config.maxRequestSize,
 	}
 }
 
