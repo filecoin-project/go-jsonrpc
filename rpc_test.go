@@ -20,6 +20,7 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/xerrors"
 )
 
 func init() {
@@ -990,4 +991,91 @@ func readerDec(ctx context.Context, rin []byte) (reflect.Value, error) {
 	defer readerRegisteryLk.Unlock()
 
 	return reflect.ValueOf(readerRegistery[id]), nil
+}
+
+type ErrSomethingBad struct{}
+
+func (e ErrSomethingBad) Error() string {
+	return "something bad has happened"
+}
+
+type ErrMyErr struct{ str string }
+
+var _ error = ErrSomethingBad{}
+
+func (e *ErrMyErr) UnmarshalJSON(data []byte) error {
+	return json.Unmarshal(data, &e.str)
+}
+
+func (e *ErrMyErr) MarshalJSON() ([]byte, error) {
+	return json.Marshal(e.str)
+}
+
+func (e *ErrMyErr) Error() string {
+	return fmt.Sprintf("this happened: %s", e.str)
+}
+
+type ErrHandler struct{}
+
+func (h *ErrHandler) Test() error {
+	return ErrSomethingBad{}
+}
+
+func (h *ErrHandler) TestP() error {
+	return &ErrSomethingBad{}
+}
+
+func (h *ErrHandler) TestMy(s string) error {
+	return &ErrMyErr{
+		str: s,
+	}
+}
+
+func TestUserError(t *testing.T) {
+	// setup server
+
+	serverHandler := &ErrHandler{}
+
+	const (
+		EBad = iota + FirstUserCode
+		EBad2
+		EMy
+	)
+
+	errs := NewErrors()
+	errs.Register(EBad, new(ErrSomethingBad))
+	errs.Register(EBad2, new(*ErrSomethingBad))
+	errs.Register(EMy, new(*ErrMyErr))
+
+	rpcServer := NewServer(WithServerErrors(errs))
+	rpcServer.Register("ErrHandler", serverHandler)
+
+	// httptest stuff
+	testServ := httptest.NewServer(rpcServer)
+	defer testServ.Close()
+
+	// setup client
+
+	var client struct {
+		Test   func() error
+		TestP  func() error
+		TestMy func(s string) error
+	}
+	closer, err := NewMergeClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "ErrHandler", []interface{}{
+		&client,
+	}, nil, WithErrors(errs))
+	require.NoError(t, err)
+
+	e := client.Test()
+	require.True(t, xerrors.Is(e, ErrSomethingBad{}))
+
+	e = client.TestP()
+	require.True(t, xerrors.Is(e, &ErrSomethingBad{}))
+
+	e = client.TestMy("some event")
+	require.Error(t, e)
+	require.Equal(t, "this happened: some event", e.Error())
+	require.Equal(t, "this happened: some event", e.(*ErrMyErr).Error())
+
+	closer()
 }
