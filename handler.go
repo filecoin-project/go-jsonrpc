@@ -194,10 +194,16 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 
 	handler, ok := s.methods[req.Method]
 	if !ok {
-		rpcError(w, &req, rpcMethodNotFound, fmt.Errorf("method '%s' not found", req.Method))
-		stats.Record(ctx, metrics.RPCInvalidMethod.M(1))
-		done(false)
-		return
+		aliasTo, ok := s.aliasedMethods[req.Method]
+		if ok {
+			handler, ok = s.methods[aliasTo]
+		}
+		if !ok {
+			rpcError(w, &req, rpcMethodNotFound, fmt.Errorf("method '%s' not found", req.Method))
+			stats.Record(ctx, metrics.RPCInvalidMethod.M(1))
+			done(false)
+			return
+		}
 	}
 
 	if len(req.Params) != handler.nParams {
