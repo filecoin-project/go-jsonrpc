@@ -84,6 +84,7 @@ func (s *RPCServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.handleReader(ctx, r.Body, w, rpcError)
+	_ = r.Body.Close() // nolint
 }
 
 func rpcError(wf func(func(io.Writer)), req *request, code int, err error) {
