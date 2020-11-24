@@ -144,15 +144,12 @@ func httpClient(ctx context.Context, addr string, namespace string, outs []inter
 		if err != nil {
 			return clientResponse{}, err
 		}
+		defer httpResp.Body.Close()
 
 		var resp clientResponse
 
 		if err := json.NewDecoder(httpResp.Body).Decode(&resp); err != nil {
 			return clientResponse{}, xerrors.Errorf("unmarshaling response: %w", err)
-		}
-
-		if err := httpResp.Body.Close(); err != nil {
-			return clientResponse{}, err
 		}
 
 		if resp.ID != *cr.req.ID {
