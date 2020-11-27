@@ -556,7 +556,7 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 		case r, ok := <-c.incoming:
 			if !ok {
 				if c.incomingErr != nil {
-					if !websocket.IsCloseError(c.incomingErr, websocket.CloseNormalClosure) {
+					if !websocket.IsCloseError(c.incomingErr, websocket.CloseNormalClosure, websocket.CloseAbnormalClosure) {
 						log.Debugw("websocket error", "error", c.incomingErr)
 						// connection dropped unexpectedly, do our best to recover it
 						c.closeInFlight()
