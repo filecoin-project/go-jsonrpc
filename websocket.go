@@ -556,17 +556,14 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 		case r, ok := <-c.incoming:
 			if !ok {
 				if c.incomingErr != nil {
-					if !websocket.IsCloseError(c.incomingErr, websocket.CloseNormalClosure, websocket.CloseAbnormalClosure) {
-						log.Debugw("websocket error", "error", c.incomingErr)
+					log.Debugw("websocket error", "error", c.incomingErr)
+					// only client needs to reconnect
+					if c.connFactory != nil {
 						// connection dropped unexpectedly, do our best to recover it
 						c.closeInFlight()
 						c.closeChans()
 						c.incoming = make(chan io.Reader) // listen again for responses
 						go func() {
-							if c.connFactory == nil { // likely the server side, don't try to reconnect
-								return
-							}
-
 							stopPings()
 
 							attempts := 0
