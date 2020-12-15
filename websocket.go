@@ -545,7 +545,10 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 		var timeoutCh <-chan time.Time
 		if timeoutTimer != nil {
 			if !timeoutTimer.Stop() {
-				<-timeoutTimer.C
+				select {
+				case <-timeoutTimer.C:
+				default:
+				}
 			}
 			timeoutTimer.Reset(c.timeout)
 
@@ -556,17 +559,14 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 		case r, ok := <-c.incoming:
 			if !ok {
 				if c.incomingErr != nil {
-					if !websocket.IsCloseError(c.incomingErr, websocket.CloseNormalClosure) {
-						log.Debugw("websocket error", "error", c.incomingErr)
+					log.Debugw("websocket error", "error", c.incomingErr)
+					// only client needs to reconnect
+					if c.connFactory != nil {
 						// connection dropped unexpectedly, do our best to recover it
 						c.closeInFlight()
 						c.closeChans()
 						c.incoming = make(chan io.Reader) // listen again for responses
 						go func() {
-							if c.connFactory == nil { // likely the server side, don't try to reconnect
-								return
-							}
-
 							stopPings()
 
 							attempts := 0
@@ -652,7 +652,12 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 			}
 			c.writeLk.Unlock()
 			log.Errorw("Connection timeout", "remote", c.conn.RemoteAddr())
-			return
+			// The server side does not perform the reconnect operation, so need to exit
+			if c.connFactory == nil {
+				return
+			}
+			// The client performs the reconnect operation, and if it exits it cannot start a handleWsConn again, so it does not need to exit
+			continue
 		case <-c.stop:
 			c.writeLk.Lock()
 			cmsg := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")
