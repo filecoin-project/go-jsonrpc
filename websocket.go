@@ -51,6 +51,7 @@ type wsConn struct {
 	handler          *RPCServer
 	requests         <-chan clientRequest
 	pongs            chan struct{}
+	stopPings        func()
 	stop             <-chan struct{}
 	exiting          chan struct{}
 
@@ -511,6 +512,50 @@ func (c *wsConn) setupPings() func() {
 	}
 }
 
+// returns true if reconnected
+func (c *wsConn) tryReconnect(ctx context.Context) bool {
+	if c.connFactory == nil { // server side
+		return false
+	}
+
+	// connection dropped unexpectedly, do our best to recover it
+	c.closeInFlight()
+	c.closeChans()
+	c.incoming = make(chan io.Reader) // listen again for responses
+	go func() {
+		c.stopPings()
+
+		attempts := 0
+		var conn *websocket.Conn
+		for conn == nil {
+			time.Sleep(c.reconnectBackoff.next(attempts))
+			var err error
+			if conn, err = c.connFactory(); err != nil {
+				log.Debugw("websocket connection retry failed", "error", err)
+			}
+			select {
+			case <-ctx.Done():
+				break
+			default:
+				continue
+			}
+			attempts++
+		}
+
+		c.writeLk.Lock()
+		c.conn = conn
+		c.incomingErr = nil
+
+		c.stopPings = c.setupPings()
+
+		c.writeLk.Unlock()
+
+		go c.nextMessage()
+	}()
+
+	return true
+}
+
 func (c *wsConn) handleWsConn(ctx context.Context) {
 	c.incoming = make(chan io.Reader)
 	c.inflight = map[int64]clientRequest{}
@@ -530,8 +575,8 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 
 	// setup pings
 
-	stopPings := c.setupPings()
-	defer stopPings()
+	c.stopPings = c.setupPings()
+	defer c.stopPings()
 
 	var timeoutTimer *time.Timer
 	if c.timeout != 0 {
@@ -557,62 +602,30 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 
 		select {
 		case r, ok := <-c.incoming:
-			if !ok {
-				if c.incomingErr != nil {
-					log.Debugw("websocket error", "error", c.incomingErr)
-					// only client needs to reconnect
-					if c.connFactory != nil {
-						// connection dropped unexpectedly, do our best to recover it
-						c.closeInFlight()
-						c.closeChans()
-						c.incoming = make(chan io.Reader) // listen again for responses
-						go func() {
-							stopPings()
+			err := c.incomingErr
 
-							attempts := 0
-							var conn *websocket.Conn
-							for conn == nil {
-								time.Sleep(c.reconnectBackoff.next(attempts))
-								var err error
-								if conn, err = c.connFactory(); err != nil {
-									log.Debugw("websocket connection retry failed", "error", err)
-								}
-								select {
-								case <-ctx.Done():
-									break
-								default:
-									continue
-								}
-								attempts++
-							}
+			if ok {
+				// debug util - dump all messages to stderr
+				// r = io.TeeReader(r, os.Stderr)
 
-							c.writeLk.Lock()
-							c.conn = conn
-							c.incomingErr = nil
-
-							stopPings = c.setupPings()
-
-							c.writeLk.Unlock()
-
-							go c.nextMessage()
-						}()
-						continue
-					}
+				var frame frame
+				err = json.NewDecoder(r).Decode(&frame)
+				if err == nil {
+					c.handleFrame(ctx, frame)
+					go c.nextMessage()
+					continue
 				}
+			}
+
+			if err == nil {
 				return // remote closed
 			}
 
-			// debug util - dump all messages to stderr
-			// r = io.TeeReader(r, os.Stderr)
-
-			var frame frame
-			if err := json.NewDecoder(r).Decode(&frame); err != nil {
-				log.Error("handle me:", err)
-				return
+			log.Errorw("websocket error", "error", err)
+			// only client needs to reconnect
+			if !c.tryReconnect(ctx) {
+				return // failed to reconnect
 			}
-
-			c.handleFrame(ctx, frame)
-			go c.nextMessage()
 		case req := <-c.requests:
 			c.writeLk.Lock()
 			if req.req.ID != nil {
