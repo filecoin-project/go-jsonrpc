@@ -32,7 +32,7 @@ var (
 
 	log = logging.Logger("rpc")
 
-	 _defaultHTTPClient = &http.Client{
+	_defaultHTTPClient = &http.Client{
 		Transport: &http.Transport{
 			Proxy: http.ProxyFromEnvironment,
 			DialContext: (&net.Dialer{

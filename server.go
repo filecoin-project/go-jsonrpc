@@ -19,7 +19,7 @@ const (
 
 // RPCServer provides a jsonrpc 2.0 http server handler
 type RPCServer struct {
-	methods        map[string]rpcHandler
+	methods map[string]rpcHandler
 
 	// aliasedMethods contains a map of alias:original method names.
 	// These are used as fallbacks if a method is not found by the given method name.
