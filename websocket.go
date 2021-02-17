@@ -621,7 +621,7 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 				return // remote closed
 			}
 
-			log.Errorw("websocket error", "error", err)
+			log.Debugw("websocket error", "error", err)
 			// only client needs to reconnect
 			if !c.tryReconnect(ctx) {
 				return // failed to reconnect
