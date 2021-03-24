@@ -50,6 +50,12 @@ var (
 	}
 )
 
+// BatchParams is an argument for batch request
+type BatchParams struct {
+	Method string        `json:"method"`
+	Params []interface{} `json:"params"`
+}
+
 // ErrClient is an error which occurred on the client side the library
 type ErrClient struct {
 	err error
@@ -94,8 +100,9 @@ func NewClient(ctx context.Context, addr string, namespace string, handler inter
 }
 
 type client struct {
-	namespace     string
-	paramEncoders map[reflect.Type]ParamEncoder
+	namespace      string
+	useBatchHandle bool
+	paramEncoders  map[reflect.Type]ParamEncoder
 
 	doRequest func(context.Context, clientRequest) (clientResponse, error)
 	exiting   <-chan struct{}
@@ -128,8 +135,9 @@ func NewMergeClient(ctx context.Context, addr string, namespace string, outs []i
 
 func httpClient(ctx context.Context, addr string, namespace string, outs []interface{}, requestHeader http.Header, config Config) (ClientCloser, error) {
 	c := client{
-		namespace:     namespace,
-		paramEncoders: config.paramEncoders,
+		namespace:      namespace,
+		paramEncoders:  config.paramEncoders,
+		useBatchHandle: config.useBatchHandle,
 	}
 
 	stop := make(chan struct{})
@@ -207,8 +215,9 @@ func websocketClient(ctx context.Context, addr string, namespace string, outs []
 	}
 
 	c := client{
-		namespace:     namespace,
-		paramEncoders: config.paramEncoders,
+		namespace:      namespace,
+		paramEncoders:  config.paramEncoders,
+		useBatchHandle: config.useBatchHandle,
 	}
 
 	requests := make(chan clientRequest)
@@ -460,6 +469,103 @@ func (fn *rpcFunc) processError(err error) []reflect.Value {
 	return out
 }
 
+func (fn *rpcFunc) handleBatchRpcCall(args []reflect.Value) (results []reflect.Value) {
+	id := atomic.AddInt64(&fn.client.idCtr, 1)
+	arg := args[fn.hasCtx]
+
+	enc, found := fn.client.paramEncoders[arg.Type()]
+	if found {
+		// custom param encoder
+		var err error
+		arg, err = enc(arg)
+		if err != nil {
+			return fn.processError(fmt.Errorf("sendRequest failed: %w", err))
+		}
+	}
+	//append namespace
+	for i := 0; i < arg.Len(); i++ {
+		methodFiled := reflect.Indirect(arg.Index(i)).FieldByName("Method")
+		methodFiled.SetString(fn.client.namespace + "." + methodFiled.String())
+	}
+	params := []param{
+		{
+			v: arg,
+		},
+	}
+	hasResult := len(args) <= fn.hasCtx+2
+	var result reflect.Value
+	if hasResult {
+		result = args[fn.hasCtx+1]
+		if result.Elem().Kind() == reflect.Slice || result.Elem().Kind() == reflect.Array {
+			if result.Elem().Len() != arg.Len() {
+				return fn.processError(fmt.Errorf("request %d and result %d should be equal", arg.Len(), result.Len()))
+			}
+		} else {
+			return fn.processError(fmt.Errorf("batch result argument should be array but got %v", result.Kind()))
+		}
+	}
+
+	var ctx context.Context
+	var span *trace.Span
+	if fn.hasCtx == 1 {
+		ctx = args[0].Interface().(context.Context)
+		ctx, span = trace.StartSpan(ctx, "api.call")
+		defer span.End()
+	}
+
+	req := request{
+		Jsonrpc: "2.0",
+		ID:      &id,
+		Method:  "_." + fn.name,
+		Params:  params,
+	}
+
+	if span != nil {
+		span.AddAttributes(trace.StringAttribute("method", req.Method))
+
+		eSC := base64.StdEncoding.EncodeToString(
+			propagation.Binary(span.SpanContext()))
+		req.Meta = map[string]string{
+			"SpanContext": eSC,
+		}
+	}
+
+	b := backoff{
+		maxDelay: methodMaxRetryDelay,
+		minDelay: methodMinRetryDelay,
+	}
+
+	var resp clientResponse
+	var err error
+	// keep retrying if got a forced closed websocket conn and calling method
+	// has retry annotation
+	for attempt := 0; true; attempt++ {
+		resp, err = fn.client.sendRequest(ctx, req, nil)
+		if err != nil {
+			return fn.processError(fmt.Errorf("sendRequest failed: %w", err))
+		}
+
+		if resp.ID != *req.ID {
+			return fn.processError(xerrors.New("request and response id didn't match"))
+		}
+
+		if hasResult && resp.Result != nil {
+			if err := json.Unmarshal(resp.Result, result.Interface()); err != nil {
+				log.Warnw("unmarshaling failed", "message", string(resp.Result))
+				return fn.processError(xerrors.Errorf("unmarshaling result: %w", err))
+			}
+		}
+		retry := resp.Error != nil && resp.Error.Code == 2 && fn.retry
+		if !retry {
+			break
+		}
+
+		time.Sleep(b.next(attempt))
+	}
+
+	return fn.processResponse(resp, reflect.Value{})
+}
+
 func (fn *rpcFunc) handleRpcCall(args []reflect.Value) (results []reflect.Value) {
 	id := atomic.AddInt64(&fn.client.idCtr, 1)
 	params := make([]param, len(args)-fn.hasCtx)
@@ -575,5 +681,9 @@ func (c *client) makeRpcFunc(f reflect.StructField) (reflect.Value, error) {
 	}
 	fun.returnValueIsChannel = fun.valOut != -1 && ftyp.Out(fun.valOut).Kind() == reflect.Chan
 
-	return reflect.MakeFunc(ftyp, fun.handleRpcCall), nil
+	if c.useBatchHandle && f.Name == "Batch" {
+		return reflect.MakeFunc(ftyp, fun.handleBatchRpcCall), nil
+	} else {
+		return reflect.MakeFunc(ftyp, fun.handleRpcCall), nil
+	}
 }

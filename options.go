@@ -13,6 +13,7 @@ type Config struct {
 	reconnectBackoff backoff
 	pingInterval     time.Duration
 	timeout          time.Duration
+	useBatchHandle   bool
 
 	paramEncoders map[reflect.Type]ParamEncoder
 
@@ -26,8 +27,9 @@ func defaultConfig() Config {
 			minDelay: 100 * time.Millisecond,
 			maxDelay: 5 * time.Second,
 		},
-		pingInterval: 5 * time.Second,
-		timeout:      30 * time.Second,
+		pingInterval:   5 * time.Second,
+		timeout:        30 * time.Second,
+		useBatchHandle: true,
 
 		paramEncoders: map[reflect.Type]ParamEncoder{},
 	}
@@ -54,6 +56,12 @@ func WithPingInterval(d time.Duration) func(c *Config) {
 func WithTimeout(d time.Duration) func(c *Config) {
 	return func(c *Config) {
 		c.timeout = d
+	}
+}
+
+func DisableBatchHandler() func(c *Config) {
+	return func(c *Config) {
+		c.useBatchHandle = false
 	}
 }
 

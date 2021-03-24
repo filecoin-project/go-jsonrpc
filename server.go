@@ -37,12 +37,21 @@ func NewServer(opts ...ServerOption) *RPCServer {
 		o(&config)
 	}
 
-	return &RPCServer{
-		methods:        map[string]rpcHandler{},
-		aliasedMethods: map[string]string{},
+	methods := map[string]rpcHandler{}
+	aliasedMethods := map[string]string{}
+	rpcServer := &RPCServer{
+		methods:        methods,
+		aliasedMethods: aliasedMethods,
 		paramDecoders:  config.paramDecoders,
 		maxRequestSize: config.maxRequestSize,
 	}
+
+	rpcServer.register("_", &BatchRequest{
+		methods:        methods,
+		aliasedMethods: aliasedMethods,
+		paramDecoders:  config.paramDecoders,
+	})
+	return rpcServer
 }
 
 var upgrader = websocket.Upgrader{
