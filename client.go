@@ -681,7 +681,7 @@ func (c *client) makeRpcFunc(f reflect.StructField) (reflect.Value, error) {
 	}
 	fun.returnValueIsChannel = fun.valOut != -1 && ftyp.Out(fun.valOut).Kind() == reflect.Chan
 
-	if c.useBatchHandle && f.Name == "Batch" {
+	if c.useBatchHandle && f.Name == BatchName {
 		return reflect.MakeFunc(ftyp, fun.handleBatchRpcCall), nil
 	} else {
 		return reflect.MakeFunc(ftyp, fun.handleRpcCall), nil

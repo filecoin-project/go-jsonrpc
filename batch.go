@@ -10,6 +10,8 @@ import (
 	"reflect"
 )
 
+const BatchName = "Batch"
+
 type ServerBatchParams struct {
 	Method string  `json:"method"`
 	Params []param `json:"params"`
