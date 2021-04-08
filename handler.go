@@ -67,7 +67,16 @@ func (r *requestID) UnmarshalJSON(data []byte) error {
 }
 
 func (r requestID) MarshalJSON() ([]byte, error) {
-	return json.Marshal(r.actual)
+	switch r.actual.(type) {
+	case nil:
+		return []byte("null"), nil
+	case int64:
+		return json.Marshal(r.actual)
+	case string:
+		return json.Marshal(r.actual)
+	default:
+		return nil, fmt.Errorf("unexpected ID type: %T", r.actual)
+	}
 }
 
 // Limit request size. Ideally this limit should be specific for each field
