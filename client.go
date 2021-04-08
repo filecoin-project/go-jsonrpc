@@ -67,7 +67,7 @@ func (e *ErrClient) Unwrap(err error) error {
 type clientResponse struct {
 	Jsonrpc string          `json:"jsonrpc"`
 	Result  json.RawMessage `json:"result"`
-	ID      int64           `json:"id"`
+	ID      requestID       `json:"id"`
 	Error   *respError      `json:"error,omitempty"`
 }
 
@@ -170,7 +170,7 @@ func httpClient(ctx context.Context, addr string, namespace string, outs []inter
 			return clientResponse{}, xerrors.Errorf("unmarshaling response: %w", err)
 		}
 
-		if resp.ID != *cr.req.ID {
+		if cr.req.ID.actual != resp.ID.actual {
 			return clientResponse{}, xerrors.New("request and response id didn't match")
 		}
 
@@ -240,7 +240,7 @@ func websocketClient(ctx context.Context, addr string, namespace string, outs []
 					req: request{
 						Jsonrpc: "2.0",
 						Method:  wsCancel,
-						Params:  []param{{v: reflect.ValueOf(*cr.req.ID)}},
+						Params:  []param{{v: reflect.ValueOf(cr.req.ID.actual)}},
 					},
 				}
 				select {
@@ -498,7 +498,7 @@ func (fn *rpcFunc) handleRpcCall(args []reflect.Value) (results []reflect.Value)
 
 	req := request{
 		Jsonrpc: "2.0",
-		ID:      &id,
+		ID:      requestID{id},
 		Method:  fn.client.namespace + "." + fn.name,
 		Params:  params,
 	}
@@ -528,7 +528,7 @@ func (fn *rpcFunc) handleRpcCall(args []reflect.Value) (results []reflect.Value)
 			return fn.processError(fmt.Errorf("sendRequest failed: %w", err))
 		}
 
-		if resp.ID != *req.ID {
+		if req.ID.actual != resp.ID.actual {
 			return fn.processError(xerrors.New("request and response id didn't match"))
 		}
 

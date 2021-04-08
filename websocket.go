@@ -22,7 +22,7 @@ const chClose = "xrpc.ch.close"
 type frame struct {
 	// common
 	Jsonrpc string            `json:"jsonrpc"`
-	ID      *int64            `json:"id,omitempty"`
+	ID      requestID         `json:"id,omitempty"`
 	Meta    map[string]string `json:"meta,omitempty"`
 
 	// request
@@ -35,7 +35,7 @@ type frame struct {
 }
 
 type outChanReg struct {
-	reqID int64
+	reqID requestID
 
 	chID uint64
 	ch   reflect.Value
@@ -66,7 +66,7 @@ type wsConn struct {
 	// Client related
 
 	// inflight are requests we've sent to the remote
-	inflight map[int64]clientRequest
+	inflight map[interface{}]clientRequest
 
 	// chanHandlers is a map of client-side channel handlers
 	chanHandlers map[uint64]func(m []byte, ok bool)
@@ -75,7 +75,7 @@ type wsConn struct {
 	// Server related
 
 	// handling are the calls we handle
-	handling   map[int64]context.CancelFunc
+	handling   map[interface{}]context.CancelFunc
 	handlingLk sync.Mutex
 
 	spawnOutChanHandlerOnce sync.Once
@@ -187,7 +187,7 @@ func (c *wsConn) handleOutChans() {
 			c.nextWriter(func(w io.Writer) {
 				resp := &response{
 					Jsonrpc: "2.0",
-					ID:      registration.reqID,
+					ID:      requestID{registration.reqID},
 					Result:  registration.chID,
 				}
 
@@ -227,7 +227,7 @@ func (c *wsConn) handleOutChans() {
 
 			if err := c.sendRequest(request{
 				Jsonrpc: "2.0",
-				ID:      nil, // notification
+				ID:      requestID{nil}, // notification
 				Method:  chClose,
 				Params:  []param{{v: reflect.ValueOf(id)}},
 			}); err != nil {
@@ -239,7 +239,7 @@ func (c *wsConn) handleOutChans() {
 		// forward message
 		if err := c.sendRequest(request{
 			Jsonrpc: "2.0",
-			ID:      nil, // notification
+			ID:      requestID{nil}, // notification
 			Method:  chValue,
 			Params:  []param{{v: reflect.ValueOf(caseToID[chosen-internal])}, {v: val}},
 		}); err != nil {
@@ -250,7 +250,7 @@ func (c *wsConn) handleOutChans() {
 }
 
 // handleChanOut registers output channel for forwarding to client
-func (c *wsConn) handleChanOut(ch reflect.Value, req int64) error {
+func (c *wsConn) handleChanOut(ch reflect.Value, req requestID) error {
 	c.spawnOutChanHandlerOnce.Do(func() {
 		go c.handleOutChans()
 	})
@@ -279,21 +279,21 @@ func (c *wsConn) handleChanOut(ch reflect.Value, req int64) error {
 //  This should also probably be a single goroutine,
 //  Note that not doing this should be fine for now as long as we are using
 //  contexts correctly (cancelling when async functions are no longer is use)
-func (c *wsConn) handleCtxAsync(actx context.Context, id int64) {
+func (c *wsConn) handleCtxAsync(actx context.Context, id requestID) {
 	<-actx.Done()
 
 	if err := c.sendRequest(request{
 		Jsonrpc: "2.0",
 		Method:  wsCancel,
-		Params:  []param{{v: reflect.ValueOf(id)}},
+		Params:  []param{{v: reflect.ValueOf(id.actual)}},
 	}); err != nil {
-		log.Warnw("failed to send request", "method", wsCancel, "id", id, "error", err.Error())
+		log.Warnw("failed to send request", "method", wsCancel, "id", id.actual, "error", err.Error())
 	}
 }
 
 // cancelCtx is a built-in rpc which handles context cancellation over rpc
 func (c *wsConn) cancelCtx(req frame) {
-	if req.ID != nil {
+	if req.ID.actual != nil {
 		log.Warnf("%s call with ID set, won't respond", wsCancel)
 	}
 
@@ -351,7 +351,7 @@ func (c *wsConn) handleChanClose(frame frame) {
 }
 
 func (c *wsConn) handleResponse(frame frame) {
-	req, ok := c.inflight[*frame.ID]
+	req, ok := c.inflight[frame.ID.actual]
 	if !ok {
 		log.Error("client got unknown ID in response")
 		return
@@ -367,16 +367,16 @@ func (c *wsConn) handleResponse(frame frame) {
 
 		var chanCtx context.Context
 		chanCtx, c.chanHandlers[chid] = req.retCh()
-		go c.handleCtxAsync(chanCtx, *frame.ID)
+		go c.handleCtxAsync(chanCtx, frame.ID)
 	}
 
 	req.ready <- clientResponse{
 		Jsonrpc: frame.Jsonrpc,
 		Result:  frame.Result,
-		ID:      *frame.ID,
+		ID:      frame.ID,
 		Error:   frame.Error,
 	}
-	delete(c.inflight, *frame.ID)
+	delete(c.inflight, frame.ID.actual)
 }
 
 func (c *wsConn) handleCall(ctx context.Context, frame frame) {
@@ -403,11 +403,11 @@ func (c *wsConn) handleCall(ctx context.Context, frame frame) {
 			cancel()
 		}
 	}
-	if frame.ID != nil {
+	if frame.ID.actual != nil {
 		nextWriter = c.nextWriter
 
 		c.handlingLk.Lock()
-		c.handling[*frame.ID] = cancel
+		c.handling[frame.ID.actual] = cancel
 		c.handlingLk.Unlock()
 
 		done = func(keepctx bool) {
@@ -416,7 +416,7 @@ func (c *wsConn) handleCall(ctx context.Context, frame frame) {
 
 			if !keepctx {
 				cancel()
-				delete(c.handling, *frame.ID)
+				delete(c.handling, frame.ID.actual)
 			}
 		}
 	}
@@ -448,7 +448,7 @@ func (c *wsConn) closeInFlight() {
 	for id, req := range c.inflight {
 		req.ready <- clientResponse{
 			Jsonrpc: "2.0",
-			ID:      id,
+			ID:      requestID{id},
 			Error: &respError{
 				Message: "handler: websocket connection closed",
 				Code:    2,
@@ -462,8 +462,8 @@ func (c *wsConn) closeInFlight() {
 	}
 	c.handlingLk.Unlock()
 
-	c.inflight = map[int64]clientRequest{}
-	c.handling = map[int64]context.CancelFunc{}
+	c.inflight = map[interface{}]clientRequest{}
+	c.handling = map[interface{}]context.CancelFunc{}
 }
 
 func (c *wsConn) closeChans() {
@@ -558,8 +558,8 @@ func (c *wsConn) tryReconnect(ctx context.Context) bool {
 
 func (c *wsConn) handleWsConn(ctx context.Context) {
 	c.incoming = make(chan io.Reader)
-	c.inflight = map[int64]clientRequest{}
-	c.handling = map[int64]context.CancelFunc{}
+	c.inflight = map[interface{}]clientRequest{}
+	c.handling = map[interface{}]context.CancelFunc{}
 	c.chanHandlers = map[uint64]func(m []byte, ok bool){}
 	c.pongs = make(chan struct{}, 1)
 
@@ -628,11 +628,11 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 			}
 		case req := <-c.requests:
 			c.writeLk.Lock()
-			if req.req.ID != nil {
+			if req.req.ID.actual != nil {
 				if c.incomingErr != nil { // No conn?, immediate fail
 					req.ready <- clientResponse{
 						Jsonrpc: "2.0",
-						ID:      *req.req.ID,
+						ID:      req.req.ID,
 						Error: &respError{
 							Message: "handler: websocket connection closed",
 							Code:    2,
@@ -641,7 +641,7 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 					c.writeLk.Unlock()
 					break
 				}
-				c.inflight[*req.req.ID] = req
+				c.inflight[req.req.ID.actual] = req
 			}
 			c.writeLk.Unlock()
 			if err := c.sendRequest(req.req); err != nil {

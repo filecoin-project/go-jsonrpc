@@ -37,10 +37,37 @@ type rpcHandler struct {
 
 type request struct {
 	Jsonrpc string            `json:"jsonrpc"`
-	ID      *int64            `json:"id,omitempty"`
+	ID      requestID         `json:"id,omitempty"`
 	Method  string            `json:"method"`
 	Params  []param           `json:"params"`
 	Meta    map[string]string `json:"meta,omitempty"`
+}
+
+type requestID struct {
+	actual interface{} // nil, int64, or string
+}
+
+func (r *requestID) UnmarshalJSON(data []byte) error {
+	switch data[0] {
+	case 'n': // null
+	case '"': // string
+		var s string
+		if err := json.Unmarshal(data, &s); err != nil {
+			return err
+		}
+		r.actual = s
+	default: // number
+		var n int64
+		if err := json.Unmarshal(data, &n); err != nil {
+			return err
+		}
+		r.actual = n
+	}
+	return nil
+}
+
+func (r requestID) MarshalJSON() ([]byte, error) {
+	return json.Marshal(r.actual)
 }
 
 // Limit request size. Ideally this limit should be specific for each field
@@ -64,7 +91,7 @@ func (e *respError) Error() string {
 type response struct {
 	Jsonrpc string      `json:"jsonrpc"`
 	Result  interface{} `json:"result,omitempty"`
-	ID      int64       `json:"id"`
+	ID      requestID   `json:"id"`
 	Error   *respError  `json:"error,omitempty"`
 }
 
@@ -109,7 +136,7 @@ func (s *RPCServer) register(namespace string, r interface{}) {
 // Handle
 
 type rpcErrFunc func(w func(func(io.Writer)), req *request, code int, err error)
-type chanOut func(reflect.Value, int64) error
+type chanOut func(reflect.Value, requestID) error
 
 func (s *RPCServer) handleReader(ctx context.Context, r io.Reader, w io.Writer, rpcError rpcErrFunc) {
 	wf := func(cb func(io.Writer)) {
@@ -262,7 +289,7 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 		stats.Record(ctx, metrics.RPCRequestError.M(1))
 		return
 	}
-	if req.ID == nil {
+	if req.ID.actual == nil {
 		return // notification
 	}
 
@@ -270,7 +297,7 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 
 	resp := response{
 		Jsonrpc: "2.0",
-		ID:      *req.ID,
+		ID:      req.ID,
 	}
 
 	if handler.errOut != -1 {
@@ -302,7 +329,7 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 			// sending channel messages before this rpc call returns
 
 			//noinspection GoNilness // already checked above
-			err = chOut(callResult[handler.valOut], *req.ID)
+			err = chOut(callResult[handler.valOut], req.ID)
 			if err == nil {
 				return // channel goroutine handles responding
 			}
