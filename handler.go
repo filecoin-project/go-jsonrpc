@@ -68,11 +68,7 @@ func (r *requestID) UnmarshalJSON(data []byte) error {
 
 func (r requestID) MarshalJSON() ([]byte, error) {
 	switch r.actual.(type) {
-	case nil:
-		return []byte("null"), nil
-	case int64:
-		return json.Marshal(r.actual)
-	case string:
+	case nil, int64, string:
 		return json.Marshal(r.actual)
 	default:
 		return nil, fmt.Errorf("unexpected ID type: %T", r.actual)
