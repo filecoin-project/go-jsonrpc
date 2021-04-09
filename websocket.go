@@ -69,7 +69,7 @@ type wsConn struct {
 	inflight map[interface{}]clientRequest
 
 	// chanHandlers is a map of client-side channel handlers
-	chanHandlers map[uint64]func(m []byte, ok bool)
+	chanHandlers map[interface{}]func(m []byte, ok bool)
 
 	// ////
 	// Server related
@@ -317,15 +317,20 @@ func (c *wsConn) cancelCtx(req frame) {
 //                     //
 
 func (c *wsConn) handleChanMessage(frame frame) {
-	var chid uint64
+	var chid requestID
 	if err := json.Unmarshal(frame.Params[0].data, &chid); err != nil {
 		log.Error("failed to unmarshal channel id in xrpc.ch.val: %s", err)
 		return
 	}
 
-	hnd, ok := c.chanHandlers[chid]
+	if chid.actual == nil {
+		log.Errorf("xrpc.ch.val: no handler ID")
+		return
+	}
+
+	hnd, ok := c.chanHandlers[chid.actual]
 	if !ok {
-		log.Errorf("xrpc.ch.val: handler %d not found", chid)
+		log.Errorf("xrpc.ch.val: handler %d not found", chid.actual)
 		return
 	}
 
@@ -333,19 +338,24 @@ func (c *wsConn) handleChanMessage(frame frame) {
 }
 
 func (c *wsConn) handleChanClose(frame frame) {
-	var chid uint64
+	var chid requestID
 	if err := json.Unmarshal(frame.Params[0].data, &chid); err != nil {
 		log.Error("failed to unmarshal channel id in xrpc.ch.val: %s", err)
 		return
 	}
 
-	hnd, ok := c.chanHandlers[chid]
+	if chid.actual == nil {
+		log.Errorf("xrpc.ch.val: no handler ID")
+		return
+	}
+
+	hnd, ok := c.chanHandlers[chid.actual]
 	if !ok {
 		log.Errorf("xrpc.ch.val: handler %d not found", chid)
 		return
 	}
 
-	delete(c.chanHandlers, chid)
+	delete(c.chanHandlers, chid.actual)
 
 	hnd(nil, false)
 }
@@ -359,14 +369,19 @@ func (c *wsConn) handleResponse(frame frame) {
 
 	if req.retCh != nil && frame.Result != nil {
 		// output is channel
-		var chid uint64
+		var chid requestID
 		if err := json.Unmarshal(frame.Result, &chid); err != nil {
 			log.Errorf("failed to unmarshal channel id response: %s, data '%s'", err, string(frame.Result))
 			return
 		}
 
+		if chid.actual == nil {
+			log.Errorf("xrpc.ch.val: no handler ID")
+			return
+		}
+
 		var chanCtx context.Context
-		chanCtx, c.chanHandlers[chid] = req.retCh()
+		chanCtx, c.chanHandlers[chid.actual] = req.retCh()
 		go c.handleCtxAsync(chanCtx, frame.ID)
 	}
 
@@ -560,7 +575,7 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 	c.incoming = make(chan io.Reader)
 	c.inflight = map[interface{}]clientRequest{}
 	c.handling = map[interface{}]context.CancelFunc{}
-	c.chanHandlers = map[uint64]func(m []byte, ok bool){}
+	c.chanHandlers = map[interface{}]func(m []byte, ok bool){}
 	c.pongs = make(chan struct{}, 1)
 
 	c.registerCh = make(chan outChanReg)
