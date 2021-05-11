@@ -256,7 +256,23 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 
 	///////////////////
 
-	callResult, err := doCall(req.Method, handler.handlerFunc, callParams)
+	var callResult []reflect.Value
+	var err error
+	callResultDone := make(chan struct{})
+
+	go func() {
+		callResult, err = doCall(req.Method, handler.handlerFunc, callParams)
+		close(callResultDone)
+	}()
+
+	select {
+	case <-ctx.Done():
+		rpcError(w, &req, rpcApplicationError, xerrors.Errorf("calling '%s': %w", req.Method, ctx.Err()))
+		stats.Record(ctx, metrics.RPCRequestError.M(1))
+		return
+	case <-callResultDone:
+	}
+
 	if err != nil {
 		rpcError(w, &req, 0, xerrors.Errorf("fatal error calling '%s': %w", req.Method, err))
 		stats.Record(ctx, metrics.RPCRequestError.M(1))

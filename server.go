@@ -12,9 +12,10 @@ import (
 )
 
 const (
-	rpcParseError     = -32700
-	rpcMethodNotFound = -32601
-	rpcInvalidParams  = -32602
+	rpcParseError       = -32700
+	rpcMethodNotFound   = -32601
+	rpcInvalidParams    = -32602
+	rpcApplicationError = -32500
 )
 
 // RPCServer provides a jsonrpc 2.0 http server handler
