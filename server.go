@@ -28,6 +28,8 @@ type RPCServer struct {
 	paramDecoders map[reflect.Type]ParamDecoder
 
 	maxRequestSize int64
+
+	proxyBind ProxyBind
 }
 
 // NewServer creates new RPCServer instance
@@ -42,6 +44,7 @@ func NewServer(opts ...ServerOption) *RPCServer {
 		aliasedMethods: map[string]string{},
 		paramDecoders:  config.paramDecoders,
 		maxRequestSize: config.maxRequestSize,
+		proxyBind:      config.proxyBind,
 	}
 }
 
