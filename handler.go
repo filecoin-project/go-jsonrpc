@@ -123,9 +123,10 @@ func (s *RPCServer) registerWithField(namespace string, r interface{}) {
 	//TODO: expect ptr
 
 	for i := 0; i < val.NumField(); i++ {
-		field := val.Type().Field(i)
-		funcType := field.Type
-		hasCtx := 0
+		/*field := val.Type().Field(i)
+		funcType := field.Type*/
+		s.registerInnerStructField(namespace, val.Field(i))
+		/*hasCtx := 0
 		if funcType.NumIn() >= 1 && funcType.In(0) == contextType {
 			hasCtx = 1
 		}
@@ -149,6 +150,42 @@ func (s *RPCServer) registerWithField(namespace string, r interface{}) {
 
 			errOut: errOut,
 			valOut: valOut,
+		}*/
+	}
+}
+
+func (s *RPCServer) registerInnerStructField(namespace string, val reflect.Value) {
+	for i := 0; i < val.NumField(); i++ {
+		field := val.Type().Field(i)
+		funcType := field.Type
+		if funcType.Kind() == reflect.Struct {
+			s.registerInnerStructField(namespace, val.Field(i))
+		} else {
+			hasCtx := 0
+			if funcType.NumIn() >= 1 && funcType.In(0) == contextType {
+				hasCtx = 1
+			}
+
+			ins := funcType.NumIn() - hasCtx
+			recvs := make([]reflect.Type, ins)
+			for i := 0; i < ins; i++ {
+				recvs[i] = field.Type.In(i + hasCtx)
+			}
+
+			valOut, errOut, _ := processFuncOut(funcType)
+
+			s.methods[namespace+"."+field.Name] = rpcHandler{
+				paramReceivers: recvs,
+				nParams:        ins,
+
+				handlerFunc: val.Field(i),
+				receiver:    val,
+
+				hasCtx: hasCtx,
+
+				errOut: errOut,
+				valOut: valOut,
+			}
 		}
 	}
 }
@@ -301,7 +338,7 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 			}
 		}
 
-		callParams[i+1+handler.hasCtx] = reflect.ValueOf(rp.Interface())
+		callParams[i+ctxParamIndex+handler.hasCtx] = reflect.ValueOf(rp.Interface())
 	}
 
 	///////////////////
