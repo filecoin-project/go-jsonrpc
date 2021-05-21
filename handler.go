@@ -71,6 +71,18 @@ type response struct {
 // Register
 
 func (s *RPCServer) register(namespace string, r interface{}) {
+	switch s.proxyBind {
+	case PBField:
+		s.registerWithField(namespace, r)
+	case PBMethod:
+		s.registerWithMethod(namespace, r)
+	default:
+		panic("Unknown rpcHandler proxy")
+	}
+
+}
+
+func (s *RPCServer) registerWithMethod(namespace string, r interface{}) {
 	val := reflect.ValueOf(r)
 	//TODO: expect ptr
 
@@ -102,6 +114,51 @@ func (s *RPCServer) register(namespace string, r interface{}) {
 
 			errOut: errOut,
 			valOut: valOut,
+		}
+	}
+}
+
+func (s *RPCServer) registerWithField(namespace string, r interface{}) {
+	val := reflect.ValueOf(r).Elem()
+	//TODO: expect ptr
+
+	for i := 0; i < val.NumField(); i++ {
+		s.registerInnerStructField(namespace, val.Field(i))
+	}
+}
+
+func (s *RPCServer) registerInnerStructField(namespace string, val reflect.Value) {
+	for i := 0; i < val.NumField(); i++ {
+		field := val.Type().Field(i)
+		funcType := field.Type
+		if funcType.Kind() == reflect.Struct {
+			s.registerInnerStructField(namespace, val.Field(i))
+		} else {
+			hasCtx := 0
+			if funcType.NumIn() >= 1 && funcType.In(0) == contextType {
+				hasCtx = 1
+			}
+
+			ins := funcType.NumIn() - hasCtx
+			recvs := make([]reflect.Type, ins)
+			for i := 0; i < ins; i++ {
+				recvs[i] = field.Type.In(i + hasCtx)
+			}
+
+			valOut, errOut, _ := processFuncOut(funcType)
+
+			s.methods[namespace+"."+field.Name] = rpcHandler{
+				paramReceivers: recvs,
+				nParams:        ins,
+
+				handlerFunc: val.Field(i),
+				receiver:    val,
+
+				hasCtx: hasCtx,
+
+				errOut: errOut,
+				valOut: valOut,
+			}
 		}
 	}
 }
@@ -221,11 +278,14 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 		stats.Record(ctx, metrics.RPCRequestError.M(1))
 		return
 	}
-
-	callParams := make([]reflect.Value, 1+handler.hasCtx+handler.nParams)
+	ctxParamIndex := 0
+	if s.proxyBind == PBMethod {
+		ctxParamIndex += 1
+	}
+	callParams := make([]reflect.Value, ctxParamIndex+handler.hasCtx+handler.nParams)
 	callParams[0] = handler.receiver
 	if handler.hasCtx == 1 {
-		callParams[1] = reflect.ValueOf(ctx)
+		callParams[ctxParamIndex] = reflect.ValueOf(ctx)
 	}
 
 	for i := 0; i < handler.nParams; i++ {
@@ -251,7 +311,7 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 			}
 		}
 
-		callParams[i+1+handler.hasCtx] = reflect.ValueOf(rp.Interface())
+		callParams[i+ctxParamIndex+handler.hasCtx] = reflect.ValueOf(rp.Interface())
 	}
 
 	///////////////////

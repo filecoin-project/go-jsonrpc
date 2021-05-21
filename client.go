@@ -292,18 +292,37 @@ func (c *client) provide(outs []interface{}) error {
 			return xerrors.New("handler should be a struct")
 		}
 
-		val := reflect.ValueOf(handler)
-
-		for i := 0; i < typ.NumField(); i++ {
+		val := reflect.ValueOf(handler).Elem()
+		err := c.provideStruct(val)
+		if err != nil {
+			return err
+		}
+		/*for i := 0; i < typ.NumField(); i++ {
 			fn, err := c.makeRpcFunc(typ.Field(i))
 			if err != nil {
 				return err
 			}
 
 			val.Elem().Field(i).Set(fn)
+		}*/
+	}
+	return nil
+}
+
+func (c *client) provideStruct(val reflect.Value) error {
+	for i := 0; i < val.NumField(); i++ {
+		field := val.Type().Field(i)
+		funcType := field.Type
+		if funcType.Kind() == reflect.Struct {
+			c.provideStruct(val.Field(i))
+		} else {
+			fn, err := c.makeRpcFunc(field)
+			if err != nil {
+				return err
+			}
+			val.Field(i).Set(fn)
 		}
 	}
-
 	return nil
 }
 

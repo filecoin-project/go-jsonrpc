@@ -2,12 +2,11 @@ package auth
 
 import (
 	"context"
-	"reflect"
-
 	"golang.org/x/xerrors"
+	"reflect"
 )
 
-type Permission string
+type Permission = string
 
 type permKey int
 
