@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"fmt"
 	"golang.org/x/xerrors"
 	"reflect"
 )
@@ -19,7 +18,6 @@ func WithPerm(ctx context.Context, perms []Permission) context.Context {
 
 func HasPerm(ctx context.Context, defaultPerms []Permission, perm Permission) bool {
 	callerPerms, ok := ctx.Value(permCtxKey).([]Permission)
-	fmt.Println("⛔️", callerPerms)
 	if !ok {
 		callerPerms = defaultPerms
 	}
