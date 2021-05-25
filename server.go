@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -27,6 +28,7 @@ type RPCServer struct {
 
 	paramDecoders map[reflect.Type]ParamDecoder
 
+	timeout        time.Duration
 	maxRequestSize int64
 }
 
@@ -42,6 +44,7 @@ func NewServer(opts ...ServerOption) *RPCServer {
 		aliasedMethods: map[string]string{},
 		paramDecoders:  config.paramDecoders,
 		maxRequestSize: config.maxRequestSize,
+		timeout:        config.timeout,
 	}
 }
 
@@ -67,9 +70,11 @@ func (s *RPCServer) handleWS(ctx context.Context, w http.ResponseWriter, r *http
 	}
 
 	(&wsConn{
-		conn:    c,
-		handler: s,
-		exiting: make(chan struct{}),
+		conn:         c,
+		handler:      s,
+		exiting:      make(chan struct{}),
+		timeout:      s.timeout,
+		pingInterval: s.timeout / 2,
 	}).handleWsConn(ctx)
 
 	if err := c.Close(); err != nil {

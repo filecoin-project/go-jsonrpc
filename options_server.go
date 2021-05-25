@@ -3,6 +3,7 @@ package jsonrpc
 import (
 	"context"
 	"reflect"
+	"time"
 )
 
 type ParamDecoder func(ctx context.Context, json []byte) (reflect.Value, error)
@@ -10,6 +11,7 @@ type ParamDecoder func(ctx context.Context, json []byte) (reflect.Value, error)
 type ServerConfig struct {
 	paramDecoders  map[reflect.Type]ParamDecoder
 	maxRequestSize int64
+	timeout        time.Duration
 }
 
 type ServerOption func(c *ServerConfig)
@@ -18,6 +20,7 @@ func defaultServerConfig() ServerConfig {
 	return ServerConfig{
 		paramDecoders:  map[reflect.Type]ParamDecoder{},
 		maxRequestSize: DEFAULT_MAX_REQUEST_SIZE,
+		timeout:        time.Second * 10,
 	}
 }
 
@@ -30,5 +33,11 @@ func WithParamDecoder(t interface{}, decoder ParamDecoder) ServerOption {
 func WithMaxRequestSize(max int64) ServerOption {
 	return func(c *ServerConfig) {
 		c.maxRequestSize = max
+	}
+}
+
+func WithServerTimeout(timeout time.Duration) ServerOption {
+	return func(c *ServerConfig) {
+		c.timeout = timeout
 	}
 }
