@@ -118,15 +118,16 @@ func (s *RPCServer) registerWithMethod(namespace string, r interface{}) {
 	}
 }
 
+// registerWithField register rpcHandler from struct field
+// it also supports structural inlay
 func (s *RPCServer) registerWithField(namespace string, r interface{}) {
 	val := reflect.ValueOf(r).Elem()
-	//TODO: expect ptr
-
 	for i := 0; i < val.NumField(); i++ {
 		s.registerInnerStructField(namespace, val.Field(i))
 	}
 }
 
+// registerInnerStructField Recursively register the rpcHandler
 func (s *RPCServer) registerInnerStructField(namespace string, val reflect.Value) {
 	for i := 0; i < val.NumField(); i++ {
 		field := val.Type().Field(i)
@@ -279,6 +280,16 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 		return
 	}
 	ctxParamIndex := 0
+
+	// PBMethod:
+	// func(o *numIn1)MethodName(numIn2,numIn3)(numOut1,numOut2){}
+	// paramsIn count = 1+2 = 3
+	//
+	// PBFiled:
+	// type T struct{
+	//    MethodName func(numIn1,numIn2)(numOut1,numOut2)
+	// }
+	// paramsIn count = 2
 	if s.proxyBind == PBMethod {
 		ctxParamIndex += 1
 	}
@@ -314,7 +325,6 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 		callParams[i+ctxParamIndex+handler.hasCtx] = reflect.ValueOf(rp.Interface())
 	}
 
-	///////////////////
 
 	callResult, err := doCall(req.Method, handler.handlerFunc, callParams)
 	if err != nil {

@@ -297,18 +297,13 @@ func (c *client) provide(outs []interface{}) error {
 		if err != nil {
 			return err
 		}
-		/*for i := 0; i < typ.NumField(); i++ {
-			fn, err := c.makeRpcFunc(typ.Field(i))
-			if err != nil {
-				return err
-			}
-
-			val.Elem().Field(i).Set(fn)
-		}*/
 	}
 	return nil
 }
 
+// provideStruct client func bind
+// if the field type in the client is struct,
+// loop the fields in this struct
 func (c *client) provideStruct(val reflect.Value) error {
 	for i := 0; i < val.NumField(); i++ {
 		field := val.Type().Field(i)

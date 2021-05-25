@@ -76,3 +76,54 @@ func PermissionedProxy(validPerms, defaultPerms []Permission, in interface{}, ou
 
 	}
 }
+
+// PermissionedProxyWithMethod bind the 'in' method to 'out' field
+// If the method is not declared in the 'out',skip method
+func PermissionedProxyWithMethod(validPerms, defaultPerms []Permission, in interface{}, out interface{}) {
+	ra := reflect.ValueOf(in)
+	rint := reflect.ValueOf(out).Elem()
+	for i := 0; i < ra.NumMethod(); i++ {
+		methodName := ra.Type().Method(i).Name
+		field, exists := rint.Type().FieldByName(methodName)
+		if !exists {
+			// skip not declare method in out
+			continue
+		}
+
+		requiredPerm := Permission(field.Tag.Get("perm"))
+		if requiredPerm == "" {
+			panic("missing 'perm' tag on " + field.Name) // ok
+		}
+
+		// Validate perm tag
+		ok := false
+		for _, perm := range validPerms {
+			if requiredPerm == perm {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			panic("unknown 'perm' tag on " + field.Name) // ok
+		}
+		fn := ra.Method(i)
+		rint.FieldByName(methodName).Set(reflect.MakeFunc(field.Type, func(args []reflect.Value) (results []reflect.Value) {
+			ctx := args[0].Interface().(context.Context)
+			if HasPerm(ctx, defaultPerms, requiredPerm) {
+				return fn.Call(args)
+			}
+
+			err := xerrors.Errorf("missing permission to invoke '%s' (need '%s')", field.Name, requiredPerm)
+			rerr := reflect.ValueOf(&err).Elem()
+
+			if field.Type.NumOut() == 2 {
+				return []reflect.Value{
+					reflect.Zero(field.Type.Out(0)),
+					rerr,
+				}
+			} else {
+				return []reflect.Value{rerr}
+			}
+		}))
+	}
+}
