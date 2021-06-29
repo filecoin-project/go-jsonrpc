@@ -84,7 +84,7 @@ func (s *RPCServer) register(namespace string, r interface{}) {
 
 func (s *RPCServer) registerWithMethod(namespace string, r interface{}) {
 	val := reflect.ValueOf(r)
-	//TODO: expect ptr
+	// TODO: expect ptr
 
 	for i := 0; i < val.NumMethod(); i++ {
 		method := val.Type().Method(i)
@@ -120,7 +120,7 @@ func (s *RPCServer) registerWithMethod(namespace string, r interface{}) {
 
 func (s *RPCServer) registerWithField(namespace string, r interface{}) {
 	val := reflect.ValueOf(r).Elem()
-	//TODO: expect ptr
+	// TODO: expect ptr
 
 	for i := 0; i < val.NumField(); i++ {
 		s.registerInnerStructField(namespace, val.Field(i))
@@ -236,8 +236,13 @@ func (s *RPCServer) getSpan(ctx context.Context, req request) (context.Context, 
 			log.Errorf("SpanContext: could not create span", "data", bSC)
 			return ctx, nil
 		}
+
 		ctx, span := trace.StartSpanWithRemoteParent(ctx, "api.handle", sc)
 		span.AddAttributes(trace.StringAttribute("method", req.Method))
+
+		if account, isok := ctx.Value("account").(string); isok {
+			span.AddAttributes(trace.StringAttribute("account", account))
+		}
 		return ctx, span
 	}
 	return ctx, nil
@@ -314,7 +319,7 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 		callParams[i+ctxParamIndex+handler.hasCtx] = reflect.ValueOf(rp.Interface())
 	}
 
-	///////////////////
+	// /////////////////
 
 	callResult, err := doCall(req.Method, handler.handlerFunc, callParams)
 	if err != nil {
@@ -326,7 +331,7 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 		return // notification
 	}
 
-	///////////////////
+	// /////////////////
 
 	resp := response{
 		Jsonrpc: "2.0",
