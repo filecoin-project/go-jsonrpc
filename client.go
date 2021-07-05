@@ -190,7 +190,10 @@ func httpClient(ctx context.Context, addr string, namespace string, outs []inter
 func websocketClient(ctx context.Context, addr string, namespace string, outs []interface{}, requestHeader http.Header, config Config) (ClientCloser, error) {
 	connFactory := func() (*websocket.Conn, error) {
 		conn, _, err := websocket.DefaultDialer.Dial(addr, requestHeader)
-		return conn, xerrors.Errorf("cannot dialer to addr %s due to %v", addr, err)
+		if err != nil {
+			return conn, xerrors.Errorf("cannot dialer to addr %s due to %v", addr, err)
+		}
+		return conn, nil
 	}
 
 	if config.proxyConnFactory != nil {
