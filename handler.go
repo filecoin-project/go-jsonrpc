@@ -84,7 +84,7 @@ func (s *RPCServer) register(namespace string, r interface{}) {
 
 func (s *RPCServer) registerWithMethod(namespace string, r interface{}) {
 	val := reflect.ValueOf(r)
-	//TODO: expect ptr
+	// TODO: expect ptr
 
 	for i := 0; i < val.NumMethod(); i++ {
 		method := val.Type().Method(i)
@@ -120,7 +120,7 @@ func (s *RPCServer) registerWithMethod(namespace string, r interface{}) {
 
 func (s *RPCServer) registerWithField(namespace string, r interface{}) {
 	val := reflect.ValueOf(r).Elem()
-	//TODO: expect ptr
+	// TODO: expect ptr
 
 	for i := 0; i < val.NumField(); i++ {
 		s.registerInnerStructField(namespace, val.Field(i))
@@ -224,6 +224,8 @@ func (s *RPCServer) getSpan(ctx context.Context, req request) (context.Context, 
 	if req.Meta == nil {
 		return ctx, nil
 	}
+	var spanCtx context.Context
+	var span *trace.Span
 	if eSC, ok := req.Meta["SpanContext"]; ok {
 		bSC := make([]byte, base64.StdEncoding.DecodedLen(len(eSC)))
 		_, err := base64.StdEncoding.Decode(bSC, []byte(eSC))
@@ -236,11 +238,14 @@ func (s *RPCServer) getSpan(ctx context.Context, req request) (context.Context, 
 			log.Errorf("SpanContext: could not create span", "data", bSC)
 			return ctx, nil
 		}
-		ctx, span := trace.StartSpanWithRemoteParent(ctx, "api.handle", sc)
-		span.AddAttributes(trace.StringAttribute("method", req.Method))
-		return ctx, span
+		spanCtx, span = trace.StartSpanWithRemoteParent(ctx, "api.handle", sc)
+	} else {
+		spanCtx, span = trace.StartSpan(ctx, "api.handle")
 	}
-	return ctx, nil
+
+	span.AddAttributes(trace.StringAttribute("method", req.Method))
+
+	return spanCtx, span
 }
 
 func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writer)), rpcError rpcErrFunc, done func(keepCtx bool), chOut chanOut) {
@@ -314,7 +319,7 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 		callParams[i+ctxParamIndex+handler.hasCtx] = reflect.ValueOf(rp.Interface())
 	}
 
-	///////////////////
+	// /////////////////
 
 	callResult, err := doCall(req.Method, handler.handlerFunc, callParams)
 	if err != nil {
@@ -326,7 +331,7 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 		return // notification
 	}
 
-	///////////////////
+	// /////////////////
 
 	resp := response{
 		Jsonrpc: "2.0",
