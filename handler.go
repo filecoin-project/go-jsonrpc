@@ -226,7 +226,6 @@ func (s *RPCServer) getSpan(ctx context.Context, req request) (spCtx context.Con
 			spCtx, span = trace.StartSpan(ctx, "api.handle")
 		}
 		span.AddAttributes(trace.StringAttribute("method", req.Method))
-		fmt.Printf("spanid:%s\n", span.SpanContext().SpanID)
 	}()
 
 	if req.Meta == nil {
