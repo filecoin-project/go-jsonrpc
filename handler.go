@@ -163,12 +163,18 @@ func doCall(methodName string, f reflect.Value, params []reflect.Value) (out []r
 	return out, nil
 }
 
-func (s *RPCServer) getSpan(ctx context.Context, req request) (context.Context, *trace.Span) {
+func (s *RPCServer) getSpan(ctx context.Context, req request) (spCtx context.Context, span *trace.Span) {
+	defer func() {
+		if span == nil {
+			spCtx, span = trace.StartSpan(ctx, "api.handle")
+		}
+		span.AddAttributes(trace.StringAttribute("method", req.Method))
+	}()
+
 	if req.Meta == nil {
-		return ctx, nil
+		return
 	}
-	var spanCtx context.Context
-	var span *trace.Span
+
 	if eSC, ok := req.Meta["SpanContext"]; ok {
 		bSC := make([]byte, base64.StdEncoding.DecodedLen(len(eSC)))
 		_, err := base64.StdEncoding.Decode(bSC, []byte(eSC))
@@ -181,14 +187,9 @@ func (s *RPCServer) getSpan(ctx context.Context, req request) (context.Context, 
 			log.Errorf("SpanContext: could not create span", "data", bSC)
 			return ctx, nil
 		}
-		spanCtx, span = trace.StartSpanWithRemoteParent(ctx, "api.handle", sc)
-	} else {
-		spanCtx, span = trace.StartSpan(ctx, "api.handle")
+		spCtx, span = trace.StartSpanWithRemoteParent(ctx, "api.handle", sc)
 	}
-
-	span.AddAttributes(trace.StringAttribute("method", req.Method))
-
-	return spanCtx, span
+	return
 }
 
 func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writer)), rpcError rpcErrFunc, done func(keepCtx bool), chOut chanOut) {
