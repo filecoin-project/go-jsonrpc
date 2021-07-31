@@ -28,7 +28,10 @@ type RPCServer struct {
 
 	paramDecoders map[reflect.Type]ParamDecoder
 
-	timeout        time.Duration
+	timeout time.Duration
+
+	pingInterval time.Duration
+
 	maxRequestSize int64
 }
 
@@ -45,6 +48,7 @@ func NewServer(opts ...ServerOption) *RPCServer {
 		paramDecoders:  config.paramDecoders,
 		maxRequestSize: config.maxRequestSize,
 		timeout:        config.timeout,
+		pingInterval:   config.pingInterval,
 	}
 }
 
@@ -74,7 +78,7 @@ func (s *RPCServer) handleWS(ctx context.Context, w http.ResponseWriter, r *http
 		handler:      s,
 		exiting:      make(chan struct{}),
 		timeout:      s.timeout,
-		pingInterval: s.timeout / 2,
+		pingInterval: s.pingInterval,
 	}).handleWsConn(ctx)
 
 	if err := c.Close(); err != nil {

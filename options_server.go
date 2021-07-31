@@ -12,6 +12,7 @@ type ServerConfig struct {
 	paramDecoders  map[reflect.Type]ParamDecoder
 	maxRequestSize int64
 	timeout        time.Duration
+	pingInterval   time.Duration
 }
 
 type ServerOption func(c *ServerConfig)
@@ -20,7 +21,8 @@ func defaultServerConfig() ServerConfig {
 	return ServerConfig{
 		paramDecoders:  map[reflect.Type]ParamDecoder{},
 		maxRequestSize: DEFAULT_MAX_REQUEST_SIZE,
-		timeout:        time.Second * 10,
+		timeout:        time.Second * 30,
+		pingInterval:   time.Second * 5,
 	}
 }
 
