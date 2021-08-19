@@ -1,6 +1,7 @@
 package jsonrpc
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net"
+	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strconv"
@@ -358,6 +360,81 @@ func TestRPCHttpClient(t *testing.T) {
 		t.Error("wrong error:", err)
 	}
 	closer()
+}
+
+func TestRPCCustomHttpClient(t *testing.T) {
+	// setup server
+	serverHandler := &SimpleServerHandler{}
+	rpcServer := NewServer()
+	rpcServer.Register("SimpleServerHandler", serverHandler)
+	testServ := httptest.NewServer(rpcServer)
+	defer testServ.Close()
+
+	// setup custom client
+	addr := "http://" + testServ.Listener.Addr().String()
+	doReq := func(reqStr string) string {
+		hreq, err := http.NewRequest("POST", addr, bytes.NewReader([]byte(reqStr)))
+		require.NoError(t, err)
+
+		hreq.Header = http.Header{}
+		hreq.Header.Set("Content-Type", "application/json")
+
+		httpResp, err := testServ.Client().Do(hreq)
+		defer httpResp.Body.Close()
+
+		respBytes, err := ioutil.ReadAll(httpResp.Body)
+		require.NoError(t, err)
+
+		return string(respBytes)
+	}
+
+	// Add(2)
+	reqStr := `{"jsonrpc":"2.0","method":"SimpleServerHandler.Add","params":[2],"id":100}"`
+	respBytes := doReq(reqStr)
+	require.Equal(t, `{"jsonrpc":"2.0","id":100}`+"\n", string(respBytes))
+	require.Equal(t, 2, serverHandler.n)
+
+	// Add(-3546) error
+	reqStr = `{"jsonrpc":"2.0","method":"SimpleServerHandler.Add","params":[-3546],"id":1010102}"`
+	respBytes = doReq(reqStr)
+	require.Equal(t, `{"jsonrpc":"2.0","id":1010102,"error":{"code":1,"message":"test"}}`+"\n", string(respBytes))
+	require.Equal(t, 2, serverHandler.n)
+
+	// AddGet(3)
+	reqStr = `{"jsonrpc":"2.0","method":"SimpleServerHandler.AddGet","params":[3],"id":0}"`
+	respBytes = doReq(reqStr)
+	require.Equal(t, `{"jsonrpc":"2.0","result":5,"id":0}`+"\n", string(respBytes))
+	require.Equal(t, 5, serverHandler.n)
+
+	// StringMatch("0", 0, 0)
+	reqStr = `{"jsonrpc":"2.0","method":"SimpleServerHandler.StringMatch","params":[{"S":"0","I":0},0],"id":1}"`
+	respBytes = doReq(reqStr)
+	require.Equal(t, `{"jsonrpc":"2.0","result":{"S":"0","I":0,"Ok":true},"id":1}`+"\n", string(respBytes))
+	require.Equal(t, 5, serverHandler.n)
+
+	// StringMatch("5", 0, 5) error
+	reqStr = `{"jsonrpc":"2.0","method":"SimpleServerHandler.StringMatch","params":[{"S":"5","I":0},5],"id":2}"`
+	respBytes = doReq(reqStr)
+	require.Equal(t, `{"jsonrpc":"2.0","id":2,"error":{"code":1,"message":":("}}`+"\n", string(respBytes))
+	require.Equal(t, 5, serverHandler.n)
+
+	// StringMatch("8", 8, 8) error
+	reqStr = `{"jsonrpc":"2.0","method":"SimpleServerHandler.StringMatch","params":[{"S":"8","I":8},8],"id":3}"`
+	respBytes = doReq(reqStr)
+	require.Equal(t, `{"jsonrpc":"2.0","result":{"S":"8","I":8,"Ok":true},"id":3}`+"\n", string(respBytes))
+	require.Equal(t, 5, serverHandler.n)
+
+	// Add(int) string ID
+	reqStr = `{"jsonrpc":"2.0","method":"SimpleServerHandler.Add","params":[2],"id":"100"}"`
+	respBytes = doReq(reqStr)
+	require.Equal(t, `{"jsonrpc":"2.0","id":"100"}`+"\n", string(respBytes))
+	require.Equal(t, 7, serverHandler.n)
+
+	// Add(int) random string ID
+	reqStr = `{"jsonrpc":"2.0","method":"SimpleServerHandler.Add","params":[2],"id":"OpenRPC says this can be whatever you want"}"`
+	respBytes = doReq(reqStr)
+	require.Equal(t, `{"jsonrpc":"2.0","id":"OpenRPC says this can be whatever you want"}`+"\n", string(respBytes))
+	require.Equal(t, 9, serverHandler.n)
 }
 
 type CtxHandler struct {
