@@ -344,9 +344,13 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 		if err != nil {
 			log.Warnf("error in RPC call to '%s': %+v", req.Method, err)
 			stats.Record(ctx, metrics.RPCResponseError.M(1))
-			resp.Error = &respError{
-				Code:    1,
-				Message: err.(error).Error(),
+			if val, ok := err.(*respError); ok {
+				resp.Error = val
+			} else {
+				resp.Error = &respError{
+					Code:    1,
+					Message: err.(error).Error(),
+				}
 			}
 		}
 	}
@@ -375,9 +379,13 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 
 			log.Warnf("failed to setup channel in RPC call to '%s': %+v", req.Method, err)
 			stats.Record(ctx, metrics.RPCResponseError.M(1))
-			resp.Error = &respError{
-				Code:    1,
-				Message: err.(error).Error(),
+			if val, ok := err.(*respError); ok {
+				resp.Error = val
+			} else {
+				resp.Error = &respError{
+					Code:    1,
+					Message: err.(error).Error(),
+				}
 			}
 		} else {
 			resp.Result = res
