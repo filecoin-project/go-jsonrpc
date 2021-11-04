@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"unicode"
 
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
@@ -19,6 +20,14 @@ import (
 
 	"github.com/filecoin-project/go-jsonrpc/metrics"
 )
+
+func convertMethodName(methodName string) string {
+	runes := []rune(methodName)
+	if len(runes) > 0 {
+		runes[0] = unicode.ToLower(runes[0])
+	}
+	return string(runes)
+}
 
 type rpcHandler struct {
 	paramReceivers []reflect.Type
@@ -73,7 +82,8 @@ type response struct {
 func (s *RPCServer) register(namespace string, r interface{}) {
 	val := reflect.ValueOf(r)
 	//TODO: expect ptr
-
+	web3API := map[string]bool{"eth": true, "web3": true, "net": true, "trace": true}
+	_, isWeb3 := web3API[namespace]
 	for i := 0; i < val.NumMethod(); i++ {
 		method := val.Type().Method(i)
 
@@ -91,7 +101,11 @@ func (s *RPCServer) register(namespace string, r interface{}) {
 
 		valOut, errOut, _ := processFuncOut(funcType)
 
-		s.methods[namespace+"."+method.Name] = rpcHandler{
+		methodName := namespace + "." + method.Name
+		if isWeb3 {
+			methodName = namespace + "_" + convertMethodName(method.Name)
+		}
+		s.methods[methodName] = rpcHandler{
 			paramReceivers: recvs,
 			nParams:        ins,
 
@@ -191,7 +205,6 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 	ctx, span := s.getSpan(ctx, req)
 	ctx, _ = tag.New(ctx, tag.Insert(metrics.RPCMethod, req.Method))
 	defer span.End()
-
 	handler, ok := s.methods[req.Method]
 	if !ok {
 		aliasTo, ok := s.aliasedMethods[req.Method]
@@ -206,7 +219,7 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 		}
 	}
 
-	if len(req.Params) != handler.nParams {
+	if len(req.Params) > handler.nParams {
 		rpcError(w, &req, rpcInvalidParams, fmt.Errorf("wrong param count (method '%s'): %d != %d", req.Method, len(req.Params), handler.nParams))
 		stats.Record(ctx, metrics.RPCRequestError.M(1))
 		done(false)
@@ -222,13 +235,16 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 		return
 	}
 
-	callParams := make([]reflect.Value, 1+handler.hasCtx+handler.nParams)
+	// 0 index always bind for reciever
+	// 1 index can be use for context
+	paramsShift := 1 + handler.hasCtx
+	callParams := make([]reflect.Value, paramsShift+handler.nParams)
 	callParams[0] = handler.receiver
 	if handler.hasCtx == 1 {
 		callParams[1] = reflect.ValueOf(ctx)
 	}
 
-	for i := 0; i < handler.nParams; i++ {
+	for i := 0; i < len(req.Params); i++ {
 		var rp reflect.Value
 
 		typ := handler.paramReceivers[i]
@@ -251,7 +267,16 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 			}
 		}
 
-		callParams[i+1+handler.hasCtx] = reflect.ValueOf(rp.Interface())
+		callParams[i+paramsShift] = reflect.ValueOf(rp.Interface())
+	}
+
+	for i := len(req.Params); i < handler.nParams; i++ {
+		paramType := handler.paramReceivers[i]
+		if paramType.Kind() == reflect.Interface {
+			callParams[i+paramsShift] = reflect.ValueOf(reflect.Zero(reflect.TypeOf(float64(0))).Interface())
+		} else {
+			callParams[i+paramsShift] = reflect.ValueOf(reflect.Zero(paramType).Interface())
+		}
 	}
 
 	///////////////////
