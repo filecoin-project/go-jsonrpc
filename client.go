@@ -143,12 +143,12 @@ func httpClient(ctx context.Context, addr string, namespace string, outs []inter
 	c.doRequest = func(ctx context.Context, cr clientRequest) clientResponse {
 		b, err := json.Marshal(&cr.req)
 		if err != nil {
-			return clientResponse{ID: *cr.req.ID, Error: fmt.Errorf("mershaling requset: %s %w", err, rpcMarshalERROR)}
+			return clientResponse{ID: *cr.req.ID, Error: fmt.Errorf("(%w) mershaling requset: %s", rpcMarshalERROR, err)}
 		}
 
 		hreq, err := http.NewRequest("POST", addr, bytes.NewReader(b))
 		if err != nil {
-			return clientResponse{ID: *cr.req.ID, Error: fmt.Errorf("request error %s %w", err, NetError)}
+			return clientResponse{ID: *cr.req.ID, Error: fmt.Errorf("(%w) request error %s", rpcInvalidParams, err)}
 		}
 
 		hreq.Header = requestHeader.Clone()
@@ -171,9 +171,9 @@ func httpClient(ctx context.Context, addr string, namespace string, outs []inter
 		httpResp, err := _defaultHTTPClient.Do(hreq) //todo cancel by timeout or neterror
 		if err != nil {
 			if cancelByCtx {
-				return clientResponse{ID: *cr.req.ID, Error: fmt.Errorf("cancel by context %s %w", err, rpcExiting)}
+				return clientResponse{ID: *cr.req.ID, Error: fmt.Errorf("(%w) cancel by context %s", rpcExiting, err)}
 			} else {
-				return clientResponse{ID: *cr.req.ID, Error: fmt.Errorf("do request error %s %w", err, NetError)}
+				return clientResponse{ID: *cr.req.ID, Error: fmt.Errorf("(%w) do request error %s", NetError, err)}
 			}
 		}
 
@@ -181,10 +181,10 @@ func httpClient(ctx context.Context, addr string, namespace string, outs []inter
 
 		var respFrame frame
 		if err := json.NewDecoder(httpResp.Body).Decode(&respFrame); err != nil {
-			return clientResponse{ID: *cr.req.ID, Error: xerrors.Errorf("unmarshaling response: %s %w", err, rpcParseError)}
+			return clientResponse{ID: *cr.req.ID, Error: xerrors.Errorf("(%w) unmarshaling response: %s", rpcParseError, err)}
 		}
 		if *respFrame.ID != *cr.req.ID {
-			return clientResponse{ID: *cr.req.ID, Error: xerrors.Errorf("request and response id didn't match %w", rpcWrongId)}
+			return clientResponse{ID: *cr.req.ID, Error: xerrors.Errorf("(%w) request and response id didn't match", rpcWrongId)}
 		}
 
 		res := clientResponse{
@@ -242,7 +242,7 @@ func websocketClient(ctx context.Context, addr string, namespace string, outs []
 		select {
 		case requests <- cr:
 		case <-c.exiting:
-			return clientResponse{ID: *cr.req.ID, Error: fmt.Errorf("websocket routine exiting %w", rpcExiting)}
+			return clientResponse{ID: *cr.req.ID, Error: fmt.Errorf("(%w) websocket routine exiting", rpcExiting)}
 		}
 
 		var ctxDone <-chan struct{}
@@ -274,7 +274,7 @@ func websocketClient(ctx context.Context, addr string, namespace string, outs []
 					log.Warn("failed to send request cancellation, websocket routing exited")
 				}
 
-				return clientResponse{ID: *cr.req.ID, Error: fmt.Errorf("context by cancel %w", rpcExiting)}
+				return clientResponse{ID: *cr.req.ID, Error: fmt.Errorf("(%w) context by cancel", rpcExiting)}
 			}
 		}
 

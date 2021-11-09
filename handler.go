@@ -57,7 +57,8 @@ func (e ErrorCode) Error() string {
 }
 
 const (
-	DefaultError ErrorCode = 1
+	DefaultError ErrorCode = 0
+	LogicError   ErrorCode = 1
 	NetError     ErrorCode = 2
 	AuthError    ErrorCode = 401
 
@@ -214,7 +215,7 @@ func (s *RPCServer) handleReader(ctx context.Context, r io.Reader, w io.Writer, 
 	if err != nil {
 		// ReadFrom will discard EOF so any error here is unexpected and should
 		// be reported.
-		rpcError(wf, &req, xerrors.Errorf("reading request: %w", rpcParseError))
+		rpcError(wf, &req, xerrors.Errorf("(%w) reading request: %s", rpcParseError, err))
 		return
 	}
 	if reqSize > s.maxRequestSize {
@@ -222,13 +223,12 @@ func (s *RPCServer) handleReader(ctx context.Context, r io.Reader, w io.Writer, 
 			// rpcParseError is the closest we have from the standard errors defined
 			// in [jsonrpc spec](https://www.jsonrpc.org/specification#error_object)
 			// to report the maximum limit.
-			xerrors.Errorf("request bigger than maximum %d allowed %w",
-				s.maxRequestSize, rpcParseError))
+			xerrors.Errorf("(%w) request bigger than maximum %d allowed", rpcParseError, s.maxRequestSize))
 		return
 	}
 
 	if err := json.NewDecoder(bufferedRequest).Decode(&req); err != nil {
-		rpcError(wf, &req, xerrors.Errorf("unmarshaling request: %w", err, rpcParseError))
+		rpcError(wf, &req, xerrors.Errorf("(%w) unmarshaling request: %s", rpcParseError, err))
 		return
 	}
 
@@ -289,7 +289,7 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 			handler, ok = s.methods[aliasTo]
 		}
 		if !ok {
-			rpcError(w, &req, fmt.Errorf("method '%s' not found %w", req.Method, rpcMethodNotFound))
+			rpcError(w, &req, fmt.Errorf("(%w) method '%s' not found", rpcMethodNotFound, req.Method))
 			stats.Record(ctx, metrics.RPCInvalidMethod.M(1))
 			done(false)
 			return
@@ -297,7 +297,7 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 	}
 
 	if len(req.Params) != handler.nParams {
-		rpcError(w, &req, fmt.Errorf("wrong param count (method '%s'): %d != %d %w", req.Method, len(req.Params), handler.nParams, rpcInvalidParams))
+		rpcError(w, &req, fmt.Errorf("(%w) wrong param count (method '%s'): %d != %d %w", rpcInvalidParams, req.Method, len(req.Params), handler.nParams))
 		stats.Record(ctx, metrics.RPCRequestError.M(1))
 		done(false)
 		return
@@ -307,7 +307,7 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 	defer done(outCh)
 
 	if chOut == nil && outCh {
-		rpcError(w, &req, fmt.Errorf("method '%s' not supported in this mode (no out channel support), %w", req.Method, rpcMethodNotFound))
+		rpcError(w, &req, fmt.Errorf("(%w) method '%s' not supported in this mode (no out channel support)", rpcMethodNotFound, req.Method))
 		stats.Record(ctx, metrics.RPCRequestError.M(1))
 		return
 	}
@@ -329,7 +329,7 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 		if !found {
 			rp = reflect.New(typ)
 			if err := json.NewDecoder(bytes.NewReader(req.Params[i].data)).Decode(rp.Interface()); err != nil {
-				rpcError(w, &req, xerrors.Errorf("unmarshaling params for '%s' (param: %T): %s %w", req.Method, rp.Interface(), err, rpcParseError))
+				rpcError(w, &req, xerrors.Errorf("(%w) unmarshaling params for '%s' (param: %T): %s", rpcParseError, req.Method, rp.Interface(), err))
 				stats.Record(ctx, metrics.RPCRequestError.M(1))
 				return
 			}
@@ -338,7 +338,7 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 			var err error
 			rp, err = dec(ctx, req.Params[i].data)
 			if err != nil {
-				rpcError(w, &req, xerrors.Errorf("decoding params for '%s' (param: %d; custom decoder): %s %w", req.Method, i, err, rpcParseError))
+				rpcError(w, &req, xerrors.Errorf("(%w) decoding params for '%s' (param: %d; custom decoder): %s %w", rpcParseError, req.Method, i, err))
 				stats.Record(ctx, metrics.RPCRequestError.M(1))
 				return
 			}
@@ -351,7 +351,7 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 
 	callResult, err := doCall(req.Method, handler.handlerFunc, callParams)
 	if err != nil {
-		rpcError(w, &req, xerrors.Errorf("fatal error calling '%s': %s %w", req.Method, err, 0))
+		rpcError(w, &req, xerrors.Errorf("(%w) fatal error calling '%s': %s %w", DefaultError, req.Method, err))
 		stats.Record(ctx, metrics.RPCRequestError.M(1))
 		return
 	}
@@ -373,7 +373,7 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 			log.Warnf("error in RPC call to '%s': %+v", req.Method, err)
 			stats.Record(ctx, metrics.RPCResponseError.M(1))
 
-			var code = DefaultError //default code to 1
+			var code = LogicError //default code to 1
 			_ = xerrors.As(err.(error), &code)
 			resp.Error = &respError{
 				Code:    code,
@@ -406,7 +406,7 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 
 			log.Warnf("failed to setup channel in RPC call to '%s': %+v", req.Method, err)
 			stats.Record(ctx, metrics.RPCResponseError.M(1))
-			var code = DefaultError //default code to 1
+			var code = LogicError //default code to 1
 			_ = xerrors.As(err.(error), &code)
 			resp.Error = &respError{
 				Code:    code,
