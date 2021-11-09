@@ -3,6 +3,7 @@ package jsonrpc
 import (
 	"context"
 	"encoding/json"
+	"golang.org/x/xerrors"
 	"io"
 	"net/http"
 	"reflect"
@@ -10,12 +11,6 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-)
-
-const (
-	rpcParseError     = -32700
-	rpcMethodNotFound = -32601
-	rpcInvalidParams  = -32602
 )
 
 // RPCServer provides a jsonrpc 2.0 http server handler
@@ -100,7 +95,7 @@ func (s *RPCServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.handleReader(ctx, r.Body, w, rpcError)
 }
 
-func rpcError(wf func(func(io.Writer)), req *request, code int, err error) {
+func rpcError(wf func(func(io.Writer)), req *request, err error) {
 	log.Errorf("RPC Error: %s", err)
 	wf(func(w io.Writer) {
 		if hw, ok := w.(http.ResponseWriter); ok {
@@ -113,10 +108,12 @@ func rpcError(wf func(func(io.Writer)), req *request, code int, err error) {
 			return
 		}
 
+		var code ErrorCode
+		_ = xerrors.As(err, &code)
 		resp := response{
 			Jsonrpc: "2.0",
 			ID:      *req.ID,
-			Error: &respError{
+			Error: respError{
 				Code:    code,
 				Message: err.Error(),
 			},
