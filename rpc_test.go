@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"golang.org/x/xerrors"
 	"io"
 	"io/ioutil"
 	"net"
@@ -219,7 +220,7 @@ func TestRPC(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = erronly.AddGet()
-	if err == nil || err.Error() != "RPC error (-32602): wrong param count (method 'SimpleServerHandler.AddGet'): 0 != 1" {
+	if err == nil || !xerrors.Is(err, rpcInvalidParams) {
 		t.Error("wrong error:", err)
 	}
 	closer()
@@ -231,7 +232,7 @@ func TestRPC(t *testing.T) {
 	require.NoError(t, err)
 
 	err = wrongtype.Add("not an int")
-	if err == nil || !strings.Contains(err.Error(), "RPC error (-32700):") || !strings.Contains(err.Error(), "json: cannot unmarshal string into Go value of type int") {
+	if err == nil || !xerrors.Is(err, rpcParseError) {
 		t.Error("wrong error:", err)
 	}
 	closer()
@@ -243,7 +244,7 @@ func TestRPC(t *testing.T) {
 	require.NoError(t, err)
 
 	err = notfound.NotThere("hello?")
-	if err == nil || err.Error() != "RPC error (-32601): method 'SimpleServerHandler.NotThere' not found" {
+	if err == nil || !xerrors.Is(err, rpcMethodNotFound) {
 		t.Error("wrong error:", err)
 	}
 	closer()
@@ -330,7 +331,7 @@ func TestRPCHttpClient(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = erronly.AddGet()
-	if err == nil || err.Error() != "RPC error (-32602): wrong param count (method 'SimpleServerHandler.AddGet'): 0 != 1" {
+	if err == nil || !xerrors.Is(err, rpcInvalidParams) {
 		t.Error("wrong error:", err)
 	}
 	closer()
@@ -342,7 +343,7 @@ func TestRPCHttpClient(t *testing.T) {
 	require.NoError(t, err)
 
 	err = wrongtype.Add("not an int")
-	if err == nil || !strings.Contains(err.Error(), "RPC error (-32700):") || !strings.Contains(err.Error(), "json: cannot unmarshal string into Go value of type int") {
+	if err == nil || !xerrors.Is(err, rpcParseError) {
 		t.Error("wrong error:", err)
 	}
 	closer()
@@ -354,7 +355,7 @@ func TestRPCHttpClient(t *testing.T) {
 	require.NoError(t, err)
 
 	err = notfound.NotThere("hello?")
-	if err == nil || err.Error() != "RPC error (-32601): method 'SimpleServerHandler.NotThere' not found" {
+	if err == nil || !xerrors.Is(err, rpcMethodNotFound) {
 		t.Error("wrong error:", err)
 	}
 	closer()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"reflect"
@@ -370,12 +371,16 @@ func (c *wsConn) handleResponse(frame frame) {
 		go c.handleCtxAsync(chanCtx, *frame.ID)
 	}
 
-	req.ready <- clientResponse{
+	res := clientResponse{
 		Jsonrpc: frame.Jsonrpc,
 		Result:  frame.Result,
 		ID:      *frame.ID,
-		Error:   frame.Error,
 	}
+	if frame.Error != nil {
+		res.Error = frame.Error
+	}
+
+	req.ready <- res
 	delete(c.inflight, *frame.ID)
 }
 
@@ -449,10 +454,7 @@ func (c *wsConn) closeInFlight() {
 		req.ready <- clientResponse{
 			Jsonrpc: "2.0",
 			ID:      id,
-			Error: &respError{
-				Message: "handler: websocket connection closed",
-				Code:    2,
-			},
+			Error:   fmt.Errorf("handler: websocket connection closed %w", NetError),
 		}
 	}
 
@@ -633,10 +635,7 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 					req.ready <- clientResponse{
 						Jsonrpc: "2.0",
 						ID:      *req.req.ID,
-						Error: &respError{
-							Message: "handler: websocket connection closed",
-							Code:    2,
-						},
+						Error:   fmt.Errorf("handler: websocket connection closed %w", NetError),
 					}
 					c.writeLk.Unlock()
 					break
