@@ -13,8 +13,8 @@ type Config struct {
 	reconnectBackoff backoff
 	pingInterval     time.Duration
 	timeout          time.Duration
-
-	paramEncoders map[reflect.Type]ParamEncoder
+	retry            bool
+	paramEncoders    map[reflect.Type]ParamEncoder
 
 	noReconnect      bool
 	proxyConnFactory func(func() (*websocket.Conn, error)) func() (*websocket.Conn, error) // for testing
@@ -54,6 +54,12 @@ func WithPingInterval(d time.Duration) func(c *Config) {
 func WithTimeout(d time.Duration) func(c *Config) {
 	return func(c *Config) {
 		c.timeout = d
+	}
+}
+
+func WithRetry(d bool) func(c *Config) {
+	return func(c *Config) {
+		c.retry = d
 	}
 }
 

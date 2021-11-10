@@ -68,7 +68,7 @@ type clientResponse struct {
 	Jsonrpc string          `json:"jsonrpc"`
 	Result  json.RawMessage `json:"result"`
 	ID      int64           `json:"id"`
-	Error   *respError      `json:"error,omitempty"`
+	Error   error           `json:"error,omitempty"`
 }
 
 type makeChanSink func() (context.Context, func([]byte, bool))
@@ -96,10 +96,10 @@ func NewClient(ctx context.Context, addr string, namespace string, handler inter
 type client struct {
 	namespace     string
 	paramEncoders map[reflect.Type]ParamEncoder
-
-	doRequest func(context.Context, clientRequest) (clientResponse, error)
-	exiting   <-chan struct{}
-	idCtr     int64
+	retry         bool
+	doRequest     func(context.Context, clientRequest) clientResponse
+	exiting       <-chan struct{}
+	idCtr         int64
 }
 
 // NewMergeClient is like NewClient, but allows to specify multiple structs
@@ -130,6 +130,7 @@ func httpClient(ctx context.Context, addr string, namespace string, outs []inter
 	c := client{
 		namespace:     namespace,
 		paramEncoders: config.paramEncoders,
+		retry:         config.retry,
 	}
 
 	stop := make(chan struct{})
@@ -139,43 +140,62 @@ func httpClient(ctx context.Context, addr string, namespace string, outs []inter
 		requestHeader = http.Header{}
 	}
 
-	c.doRequest = func(ctx context.Context, cr clientRequest) (clientResponse, error) {
+	c.doRequest = func(ctx context.Context, cr clientRequest) clientResponse {
 		b, err := json.Marshal(&cr.req)
 		if err != nil {
-			return clientResponse{}, xerrors.Errorf("mershaling requset: %w", err)
+			return clientResponse{ID: *cr.req.ID, Error: fmt.Errorf("(%w) mershaling requset: %s", rpcMarshalERROR, err)}
 		}
 
 		hreq, err := http.NewRequest("POST", addr, bytes.NewReader(b))
 		if err != nil {
-			return clientResponse{}, err
+			return clientResponse{ID: *cr.req.ID, Error: fmt.Errorf("(%w) request error %s", rpcInvalidParams, err)}
 		}
 
 		hreq.Header = requestHeader.Clone()
 
+		var cancelByCtx bool
 		if ctx != nil {
-			hreq = hreq.WithContext(ctx)
+			wCtx, wCancel := context.WithCancel(context.Background())
+			hreq = hreq.WithContext(wCtx)
+			go func() {
+				select {
+				case <-ctx.Done():
+					cancelByCtx = true
+					wCancel()
+				}
+			}()
 		}
 
 		hreq.Header.Set("Content-Type", "application/json")
 
-		httpResp, err := _defaultHTTPClient.Do(hreq)
+		httpResp, err := _defaultHTTPClient.Do(hreq) //todo cancel by timeout or neterror
 		if err != nil {
-			return clientResponse{}, err
+			if cancelByCtx {
+				return clientResponse{ID: *cr.req.ID, Error: fmt.Errorf("(%w) cancel by context %s", rpcExiting, err)}
+			} else {
+				return clientResponse{ID: *cr.req.ID, Error: fmt.Errorf("(%w) do request error %s", NetError, err)}
+			}
 		}
 
 		defer httpResp.Body.Close()
 
-		var resp clientResponse
-
-		if err := json.NewDecoder(httpResp.Body).Decode(&resp); err != nil {
-			return clientResponse{}, xerrors.Errorf("http status %s, unmarshaling response: %w", httpResp.Status, err)
+		var respFrame frame
+		if err := json.NewDecoder(httpResp.Body).Decode(&respFrame); err != nil {
+			return clientResponse{ID: *cr.req.ID, Error: xerrors.Errorf("(%w) unmarshaling response: %s", rpcParseError, err)}
+		}
+		if *respFrame.ID != *cr.req.ID {
+			return clientResponse{ID: *cr.req.ID, Error: xerrors.Errorf("(%w) request and response id didn't match", rpcWrongId)}
 		}
 
-		if resp.ID != *cr.req.ID {
-			return clientResponse{}, xerrors.New("request and response id didn't match")
+		res := clientResponse{
+			Jsonrpc: respFrame.Jsonrpc,
+			ID:      *respFrame.ID,
+			Result:  respFrame.Result,
 		}
-
-		return resp, nil
+		if respFrame.Error != nil {
+			res.Error = respFrame.Error
+		}
+		return res
 	}
 
 	if err := c.provide(outs); err != nil {
@@ -213,15 +233,16 @@ func websocketClient(ctx context.Context, addr string, namespace string, outs []
 	c := client{
 		namespace:     namespace,
 		paramEncoders: config.paramEncoders,
+		retry:         config.retry,
 	}
 
 	requests := make(chan clientRequest)
 
-	c.doRequest = func(ctx context.Context, cr clientRequest) (clientResponse, error) {
+	c.doRequest = func(ctx context.Context, cr clientRequest) clientResponse {
 		select {
 		case requests <- cr:
 		case <-c.exiting:
-			return clientResponse{}, fmt.Errorf("websocket routine exiting")
+			return clientResponse{ID: *cr.req.ID, Error: fmt.Errorf("(%w) websocket routine exiting", rpcExiting)}
 		}
 
 		var ctxDone <-chan struct{}
@@ -253,10 +274,11 @@ func websocketClient(ctx context.Context, addr string, namespace string, outs []
 					log.Warn("failed to send request cancellation, websocket routing exited")
 				}
 
+				return clientResponse{ID: *cr.req.ID, Error: fmt.Errorf("(%w) context by cancel", rpcExiting)}
 			}
 		}
 
-		return resp, nil
+		return resp
 	}
 
 	stop := make(chan struct{})
@@ -426,7 +448,7 @@ func (c *client) makeOutChan(ctx context.Context, ftyp reflect.Type, valOut int)
 	return func() reflect.Value { return retVal }, chCtor
 }
 
-func (c *client) sendRequest(ctx context.Context, req request, chCtor makeChanSink) (clientResponse, error) {
+func (c *client) sendRequest(ctx context.Context, req request, chCtor makeChanSink) clientResponse {
 	creq := clientRequest{
 		req:   req,
 		ready: make(chan clientResponse, 1),
@@ -542,13 +564,15 @@ func (fn *rpcFunc) handleRpcCall(args []reflect.Value) (results []reflect.Value)
 	}
 
 	var resp clientResponse
-	var err error
 	// keep retrying if got a forced closed websocket conn and calling method
 	// has retry annotation
 	for attempt := 0; true; attempt++ {
-		resp, err = fn.client.sendRequest(ctx, req, chCtor)
-		if err != nil {
-			return fn.processError(fmt.Errorf("sendRequest failed: %w", err))
+		resp = fn.client.sendRequest(ctx, req, chCtor)
+		if xerrors.Is(resp.Error, NetError) && fn.retry {
+			waitTime := b.next(attempt)
+			log.Debugf("wait %s retry to sendrequest %s", waitTime.Seconds(), resp.Error)
+			time.Sleep(waitTime)
+			continue
 		}
 
 		if resp.ID != *req.ID {
@@ -568,12 +592,7 @@ func (fn *rpcFunc) handleRpcCall(args []reflect.Value) (results []reflect.Value)
 
 			retVal = func() reflect.Value { return val.Elem() }
 		}
-		retry := resp.Error != nil && resp.Error.Code == 2 && fn.retry
-		if !retry {
-			break
-		}
-
-		time.Sleep(b.next(attempt))
+		break
 	}
 
 	return fn.processResponse(resp, retVal())
@@ -585,11 +604,16 @@ func (c *client) makeRpcFunc(f reflect.StructField) (reflect.Value, error) {
 		return reflect.Value{}, xerrors.New("handler field not a func")
 	}
 
+	retry := c.retry
+	if val, ok := f.Tag.Lookup("retry"); ok {
+		retry = val == "true" //cover retry if has this tag
+	}
+
 	fun := &rpcFunc{
 		client: c,
 		ftyp:   ftyp,
 		name:   f.Name,
-		retry:  f.Tag.Get("retry") == "true",
+		retry:  retry,
 	}
 	fun.valOut, fun.errOut, fun.nout = processFuncOut(ftyp)
 
