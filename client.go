@@ -21,11 +21,6 @@ import (
 	"golang.org/x/xerrors"
 )
 
-const (
-	methodMinRetryDelay = 100 * time.Millisecond
-	methodMaxRetryDelay = 10 * time.Minute
-)
-
 var (
 	errorType   = reflect.TypeOf(new(error)).Elem()
 	contextType = reflect.TypeOf(new(context.Context)).Elem()
@@ -96,6 +91,7 @@ func NewClient(ctx context.Context, addr string, namespace string, handler inter
 type client struct {
 	namespace     string
 	paramEncoders map[reflect.Type]ParamEncoder
+	backoff       backoff
 	errors        *Errors
 
 	doRequest func(context.Context, clientRequest) (clientResponse, error)
@@ -131,6 +127,7 @@ func httpClient(ctx context.Context, addr string, namespace string, outs []inter
 	c := client{
 		namespace:     namespace,
 		paramEncoders: config.paramEncoders,
+		backoff:       config.retryBackoff,
 		errors:        config.errors,
 	}
 
@@ -213,6 +210,7 @@ func websocketClient(ctx context.Context, addr string, namespace string, outs []
 
 	c := client{
 		namespace:     namespace,
+		backoff:       config.retryBackoff,
 		paramEncoders: config.paramEncoders,
 		errors:        config.errors,
 	}
@@ -268,7 +266,7 @@ func websocketClient(ctx context.Context, addr string, namespace string, outs []
 	go (&wsConn{
 		conn:             conn,
 		connFactory:      connFactory,
-		reconnectBackoff: config.reconnectBackoff,
+		reconnectBackoff: config.retryBackoff,
 		pingInterval:     config.pingInterval,
 		timeout:          config.timeout,
 		handler:          nil,
@@ -433,7 +431,8 @@ type rpcFunc struct {
 	hasCtx               int
 	returnValueIsChannel bool
 
-	retry bool
+	retry   bool
+	backoff backoff
 }
 
 func (fn *rpcFunc) processResponse(resp clientResponse, rval reflect.Value) []reflect.Value {
@@ -520,11 +519,6 @@ func (fn *rpcFunc) handleRpcCall(args []reflect.Value) (results []reflect.Value)
 		}
 	}
 
-	b := backoff{
-		maxDelay: methodMaxRetryDelay,
-		minDelay: methodMinRetryDelay,
-	}
-
 	var resp clientResponse
 	var err error
 	// keep retrying if got a forced closed websocket conn and calling method
@@ -557,7 +551,7 @@ func (fn *rpcFunc) handleRpcCall(args []reflect.Value) (results []reflect.Value)
 			break
 		}
 
-		time.Sleep(b.next(attempt))
+		time.Sleep(fn.backoff.next(attempt))
 	}
 
 	return fn.processResponse(resp, retVal())
@@ -573,6 +567,7 @@ func (c *client) makeRpcFunc(f reflect.StructField) (reflect.Value, error) {
 		client: c,
 		ftyp:   ftyp,
 		name:   f.Name,
+		backoff: c.backoff,
 		retry:  f.Tag.Get("retry") == "true",
 	}
 	fun.valOut, fun.errOut, fun.nout = processFuncOut(ftyp)

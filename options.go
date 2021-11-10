@@ -7,10 +7,15 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+const (
+	methodMinRetryDelay = 100 * time.Millisecond
+	methodMaxRetryDelay = 10 * time.Minute
+)
+
 type ParamEncoder func(reflect.Value) (reflect.Value, error)
 
 type Config struct {
-	reconnectBackoff backoff
+	retryBackoff backoff
 	pingInterval     time.Duration
 	timeout          time.Duration
 
@@ -23,9 +28,9 @@ type Config struct {
 
 func defaultConfig() Config {
 	return Config{
-		reconnectBackoff: backoff{
-			minDelay: 100 * time.Millisecond,
-			maxDelay: 5 * time.Second,
+		retryBackoff: backoff{
+			minDelay: methodMinRetryDelay,
+			maxDelay: methodMaxRetryDelay,
 		},
 		pingInterval: 5 * time.Second,
 		timeout:      30 * time.Second,
@@ -38,7 +43,7 @@ type Option func(c *Config)
 
 func WithReconnectBackoff(minDelay, maxDelay time.Duration) func(c *Config) {
 	return func(c *Config) {
-		c.reconnectBackoff = backoff{
+		c.retryBackoff = backoff{
 			minDelay: minDelay,
 			maxDelay: maxDelay,
 		}
