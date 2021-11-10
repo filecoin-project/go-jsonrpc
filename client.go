@@ -96,6 +96,7 @@ func NewClient(ctx context.Context, addr string, namespace string, handler inter
 type client struct {
 	namespace     string
 	paramEncoders map[reflect.Type]ParamEncoder
+	backoff       backoff
 	retry         bool
 	doRequest     func(context.Context, clientRequest) clientResponse
 	exiting       <-chan struct{}
@@ -131,6 +132,7 @@ func httpClient(ctx context.Context, addr string, namespace string, outs []inter
 		namespace:     namespace,
 		paramEncoders: config.paramEncoders,
 		retry:         config.retry,
+		backoff:       config.reconnectBackoff,
 	}
 
 	stop := make(chan struct{})
@@ -232,6 +234,7 @@ func websocketClient(ctx context.Context, addr string, namespace string, outs []
 
 	c := client{
 		namespace:     namespace,
+		backoff:       config.reconnectBackoff,
 		paramEncoders: config.paramEncoders,
 		retry:         config.retry,
 	}
@@ -453,7 +456,8 @@ type rpcFunc struct {
 	hasCtx               int
 	returnValueIsChannel bool
 
-	retry bool
+	retry   bool
+	backoff backoff
 }
 
 func (fn *rpcFunc) processResponse(resp clientResponse, rval reflect.Value) []reflect.Value {
@@ -539,18 +543,13 @@ func (fn *rpcFunc) handleRpcCall(args []reflect.Value) (results []reflect.Value)
 		}
 	}
 
-	b := backoff{
-		maxDelay: methodMaxRetryDelay,
-		minDelay: methodMinRetryDelay,
-	}
-
 	var resp clientResponse
 	// keep retrying if got a forced closed websocket conn and calling method
 	// has retry annotation
 	for attempt := 0; true; attempt++ {
 		resp = fn.client.sendRequest(ctx, req, chCtor)
 		if xerrors.Is(resp.Error, NetError) && fn.retry {
-			waitTime := b.next(attempt)
+			waitTime := fn.backoff.next(attempt)
 			log.Debugf("wait %s retry to sendrequest %s", waitTime.Seconds(), resp.Error)
 			time.Sleep(waitTime)
 			continue
@@ -591,10 +590,11 @@ func (c *client) makeRpcFunc(f reflect.StructField) (reflect.Value, error) {
 	}
 
 	fun := &rpcFunc{
-		client: c,
-		ftyp:   ftyp,
-		name:   f.Name,
-		retry:  retry,
+		client:  c,
+		ftyp:    ftyp,
+		name:    f.Name,
+		retry:   retry,
+		backoff: c.backoff,
 	}
 	fun.valOut, fun.errOut, fun.nout = processFuncOut(ftyp)
 
