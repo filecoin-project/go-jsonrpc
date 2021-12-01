@@ -8,6 +8,7 @@ import (
 	"golang.org/x/xerrors"
 	"io"
 	"io/ioutil"
+	"math/rand"
 	"net"
 	"net/http/httptest"
 	"reflect"
@@ -991,4 +992,28 @@ func readerDec(ctx context.Context, rin []byte) (reflect.Value, error) {
 	defer readerRegisteryLk.Unlock()
 
 	return reflect.ValueOf(readerRegistery[id]), nil
+}
+
+func TestBackoff(t *testing.T) {
+	min := 100 * time.Millisecond
+	max := 10 * time.Second
+	tcl := backoff{minDelay: min, maxDelay: max}
+
+	for i := 0; i < 100000; i++ {
+		dur := tcl.next(i)
+		assert.LessOrEqual(t, int64(min), int64(dur))
+		assert.LessOrEqual(t, int64(dur), int64(max))
+	}
+
+	counter := 0
+	for {
+		attempt := rand.Int()
+		dur := tcl.next(attempt)
+		assert.LessOrEqual(t, int64(min), int64(dur))
+		assert.LessOrEqual(t, int64(dur), int64(max))
+		if counter > 1000 {
+			break
+		}
+		counter++
+	}
 }
