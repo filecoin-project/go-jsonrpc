@@ -550,7 +550,7 @@ func (fn *rpcFunc) handleRpcCall(args []reflect.Value) (results []reflect.Value)
 		resp = fn.client.sendRequest(ctx, req, chCtor)
 		if xerrors.Is(resp.Error, NetError) && fn.retry {
 			waitTime := fn.backoff.next(attempt)
-			log.Errorf("wait %s retry to sendrequest %s", waitTime.Seconds(), resp.Error)
+			log.Errorf("wait %s retry to sendrequest method %s %s", waitTime, req.Method, resp.Error)
 			time.Sleep(waitTime)
 			continue
 		}

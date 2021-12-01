@@ -240,7 +240,7 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 	}
 
 	if len(req.Params) != handler.nParams {
-		rpcError(w, &req, fmt.Errorf("(%w) wrong param count (method '%s'): %d != %d %w", rpcInvalidParams, req.Method, len(req.Params), handler.nParams))
+		rpcError(w, &req, fmt.Errorf("(%w) wrong param count (method '%s'): %d != %d", rpcInvalidParams, req.Method, len(req.Params), handler.nParams))
 		stats.Record(ctx, metrics.RPCRequestError.M(1))
 		done(false)
 		return
