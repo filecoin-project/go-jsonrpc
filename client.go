@@ -158,6 +158,9 @@ func httpClient(ctx context.Context, addr string, namespace string, outs []inter
 
 		hreq.Header.Set("Content-Type", "application/json")
 
+		if config.transport != nil {
+			_defaultHTTPClient.Transport = config.transport
+		}
 		httpResp, err := _defaultHTTPClient.Do(hreq)
 		if err != nil {
 			return clientResponse{}, err
