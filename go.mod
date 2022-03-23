@@ -7,6 +7,7 @@ require (
 	github.com/gorilla/mux v1.7.4
 	github.com/gorilla/websocket v1.4.2
 	github.com/ipfs/go-log/v2 v2.0.8
+	github.com/json-iterator/go v1.1.12
 	github.com/stretchr/testify v1.5.1
 	go.opencensus.io v0.22.3
 	go.uber.org/zap v1.14.1

@@ -5,7 +5,6 @@ import (
 	"container/list"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -14,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/filecoin-project/go-jsonrpc/json"
 	"github.com/gorilla/websocket"
 	logging "github.com/ipfs/go-log/v2"
 	"go.opencensus.io/trace"
