@@ -192,10 +192,7 @@ func httpClient(ctx context.Context, addr string, namespace string, outs []inter
 func websocketClient(ctx context.Context, addr string, namespace string, outs []interface{}, requestHeader http.Header, config Config) (ClientCloser, error) {
 	connFactory := func() (*websocket.Conn, error) {
 		conn, _, err := websocket.DefaultDialer.Dial(addr, requestHeader)
-		if err != nil {
-			return nil, xerrors.Errorf("cannot dial address %s for %w", addr, err)
-		}
-		return conn, nil
+		return conn, xerrors.Errorf("cannot dial address %s for %w", addr, err)
 	}
 
 	if config.proxyConnFactory != nil {
