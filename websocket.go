@@ -2,7 +2,6 @@ package jsonrpc
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"io/ioutil"
@@ -11,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/filecoin-project/go-jsonrpc/json"
 	"github.com/gorilla/websocket"
 	"golang.org/x/xerrors"
 )

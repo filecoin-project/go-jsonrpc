@@ -1,13 +1,13 @@
 package json
 
 import (
-	"encoding/json"
+	sysJson "encoding/json"
 	"io"
 
 	jsoNiter "github.com/json-iterator/go"
 )
 
-type RawMessage json.RawMessage
+type RawMessage = sysJson.RawMessage
 
 var instance = jsoNiter.ConfigCompatibleWithStandardLibrary
 
@@ -45,9 +45,9 @@ func ToMap(v interface{}) (map[string]interface{}, error) {
 }
 
 func NewDecoder(reader io.Reader) *jsoNiter.Decoder {
-	return instance.NewDecoder(reader)
+	return jsoNiter.NewDecoder(reader)
 }
 
 func NewEncoder(writer io.Writer) *jsoNiter.Encoder {
-	return instance.NewEncoder(writer)
+	return jsoNiter.NewEncoder(writer)
 }

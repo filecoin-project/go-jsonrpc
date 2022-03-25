@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"io"
 	"reflect"
@@ -17,6 +16,7 @@ import (
 	"go.uber.org/zap/zapcore"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/go-jsonrpc/json"
 	"github.com/filecoin-project/go-jsonrpc/metrics"
 )
 

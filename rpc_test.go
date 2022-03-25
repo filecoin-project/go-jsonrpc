@@ -2,7 +2,6 @@ package jsonrpc
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/filecoin-project/go-jsonrpc/json"
 	"github.com/gorilla/websocket"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/stretchr/testify/assert"
@@ -490,68 +490,6 @@ func TestCtxHttp(t *testing.T) {
 	closer()
 }
 
-func TestCtxHttpWithTransport(t *testing.T) {
-	// setup server
-
-	serverHandler := &CtxHandler{}
-
-	rpcServer := NewServer()
-	rpcServer.Register("CtxHandler", serverHandler)
-
-	// httptest stuff
-	testServ := httptest.NewServer(rpcServer)
-	defer testServ.Close()
-
-	// setup client
-
-	var client struct {
-		Test func(ctx context.Context)
-	}
-	closer, err := NewMergeClient(context.Background(), "http://"+testServ.Listener.Addr().String(),
-		"CtxHandler", []interface{}{&client}, nil,
-		WithTransportMaxIdleConns(600),
-		WithTransportMaxIdleConnsPerHost(200),
-		WithTransportIdleConnTimeout(120),
-		WithTransportTLSHandshakeTimeout(10),
-		WithTransportDialContext(30, 30),
-	)
-	require.NoError(t, err)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-
-	client.Test(ctx)
-	serverHandler.lk.Lock()
-
-	if !serverHandler.cancelled {
-		t.Error("expected cancellation on the server side")
-	}
-
-	serverHandler.cancelled = false
-
-	serverHandler.lk.Unlock()
-	closer()
-
-	var noCtxClient struct {
-		Test func()
-	}
-	closer, err = NewClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "CtxHandler", &noCtxClient, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	noCtxClient.Test()
-
-	serverHandler.lk.Lock()
-
-	if serverHandler.cancelled || serverHandler.i != 2 {
-		t.Error("wrong serverHandler state")
-	}
-
-	serverHandler.lk.Unlock()
-	closer()
-}
-
 type UnUnmarshalable int
 
 func (*UnUnmarshalable) UnmarshalJSON([]byte) error {
@@ -605,7 +543,7 @@ func (h *ChanHandler) Sub(ctx context.Context, i int, eq int) (<-chan int, error
 				fmt.Println("ctxdone1", i, eq)
 				return
 			case <-wait:
-				fmt.Println("CONSUMED WAIT: ", i)
+				// fmt.Println("CONSUMED WAIT: ", i)
 			}
 
 			n += i

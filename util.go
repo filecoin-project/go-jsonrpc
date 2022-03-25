@@ -1,12 +1,13 @@
 package jsonrpc
 
 import (
-	"encoding/json"
 	"fmt"
 	"math"
 	"math/rand"
 	"reflect"
 	"time"
+
+	"github.com/filecoin-project/go-jsonrpc/json"
 )
 
 type param struct {

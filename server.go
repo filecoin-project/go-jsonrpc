@@ -2,12 +2,12 @@ package jsonrpc
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"net/http"
 	"reflect"
 	"strings"
 
+	"github.com/filecoin-project/go-jsonrpc/json"
 	"github.com/gorilla/websocket"
 )
 
