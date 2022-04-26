@@ -616,6 +616,10 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 					c.handleFrame(ctx, frame)
 					go c.nextMessage()
 					continue
+				} else {
+					err = fmt.Errorf("got err while decoder reader %w", err)
+					c.incomingErr = err
+					close(c.incoming)
 				}
 			}
 
