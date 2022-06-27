@@ -462,10 +462,10 @@ func (c *wsConn) closeInFlight() {
 	for _, cancel := range c.handling {
 		cancel()
 	}
+	c.handling = map[int64]context.CancelFunc{}
 	c.handlingLk.Unlock()
 
 	c.inflight = map[int64]clientRequest{}
-	c.handling = map[int64]context.CancelFunc{}
 }
 
 func (c *wsConn) closeChans() {
