@@ -62,7 +62,7 @@ func (e *respError) Error() string {
 	return e.Message
 }
 
-var marsharableRT = reflect.TypeOf(new(marshalable)).Elem()
+var marshalableRT = reflect.TypeOf(new(marshalable)).Elem()
 
 func (e *respError) val(errors *Errors) reflect.Value {
 	if errors != nil {
@@ -74,7 +74,7 @@ func (e *respError) val(errors *Errors) reflect.Value {
 			} else {
 				v = reflect.New(t)
 			}
-			if len(e.Meta) > 0 && v.Type().Implements(marsharableRT) {
+			if len(e.Meta) > 0 && v.Type().Implements(marshalableRT) {
 				_ = v.Interface().(marshalable).UnmarshalJSON(e.Meta)
 			}
 			if t.Kind() != reflect.Ptr {
