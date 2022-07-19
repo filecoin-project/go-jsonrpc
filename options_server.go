@@ -10,6 +10,7 @@ type ParamDecoder func(ctx context.Context, json []byte) (reflect.Value, error)
 type ServerConfig struct {
 	paramDecoders  map[reflect.Type]ParamDecoder
 	maxRequestSize int64
+	errors         *Errors
 }
 
 type ServerOption func(c *ServerConfig)
@@ -30,5 +31,11 @@ func WithParamDecoder(t interface{}, decoder ParamDecoder) ServerOption {
 func WithMaxRequestSize(max int64) ServerOption {
 	return func(c *ServerConfig) {
 		c.maxRequestSize = max
+	}
+}
+
+func WithServerErrors(es Errors) ServerOption {
+	return func(c *ServerConfig) {
+		c.errors = &es
 	}
 }

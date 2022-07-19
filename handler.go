@@ -50,8 +50,9 @@ type request struct {
 const DEFAULT_MAX_REQUEST_SIZE = 100 << 20 // 100 MiB
 
 type respError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
+	Code    ErrorCode       `json:"code"`
+	Message string          `json:"message"`
+	Meta    json.RawMessage `json:"meta,omitempty"`
 }
 
 func (e *respError) Error() string {
@@ -59,6 +60,31 @@ func (e *respError) Error() string {
 		return fmt.Sprintf("RPC error (%d): %s", e.Code, e.Message)
 	}
 	return e.Message
+}
+
+var marshalableRT = reflect.TypeOf(new(marshalable)).Elem()
+
+func (e *respError) val(errors *Errors) reflect.Value {
+	if errors != nil {
+		t, ok := errors.byCode[e.Code]
+		if ok {
+			var v reflect.Value
+			if t.Kind() == reflect.Ptr {
+				v = reflect.New(t.Elem())
+			} else {
+				v = reflect.New(t)
+			}
+			if len(e.Meta) > 0 && v.Type().Implements(marshalableRT) {
+				_ = v.Interface().(marshalable).UnmarshalJSON(e.Meta)
+			}
+			if t.Kind() != reflect.Ptr {
+				v = v.Elem()
+			}
+			return v
+		}
+	}
+
+	return reflect.ValueOf(e)
 }
 
 type response struct {
@@ -108,7 +134,7 @@ func (s *RPCServer) register(namespace string, r interface{}) {
 
 // Handle
 
-type rpcErrFunc func(w func(func(io.Writer)), req *request, code int, err error)
+type rpcErrFunc func(w func(func(io.Writer)), req *request, code ErrorCode, err error)
 type chanOut func(reflect.Value, int64) error
 
 func (s *RPCServer) handleReader(ctx context.Context, r io.Reader, w io.Writer, rpcError rpcErrFunc) {
@@ -184,6 +210,30 @@ func (s *RPCServer) getSpan(ctx context.Context, req request) (context.Context, 
 		return ctx, span
 	}
 	return ctx, nil
+}
+
+func (s *RPCServer) createError(err error) *respError {
+	var code ErrorCode = 1
+	if s.errors != nil {
+		c, ok := s.errors.byType[reflect.TypeOf(err)]
+		if ok {
+			code = c
+		}
+	}
+
+	out := &respError{
+		Code:    code,
+		Message: err.(error).Error(),
+	}
+
+	if m, ok := err.(marshalable); ok {
+		meta, err := m.MarshalJSON()
+		if err == nil {
+			out.Meta = meta
+		}
+	}
+
+	return out
 }
 
 func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writer)), rpcError rpcErrFunc, done func(keepCtx bool), chOut chanOut) {
@@ -278,10 +328,8 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 		if err != nil {
 			log.Warnf("error in RPC call to '%s': %+v", req.Method, err)
 			stats.Record(ctx, metrics.RPCResponseError.M(1))
-			resp.Error = &respError{
-				Code:    1,
-				Message: err.(error).Error(),
-			}
+
+			resp.Error = s.createError(err.(error))
 		}
 	}
 
