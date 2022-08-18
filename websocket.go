@@ -19,8 +19,6 @@ const wsCancel = "xrpc.cancel"
 const chValue = "xrpc.ch.val"
 const chClose = "xrpc.ch.close"
 
-const eTempWSError = -1111111
-
 type frame struct {
 	// common
 	Jsonrpc string            `json:"jsonrpc"`
