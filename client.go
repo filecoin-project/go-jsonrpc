@@ -60,7 +60,7 @@ func (e *ErrClient) Error() string {
 }
 
 // Unwrap unwraps the actual error
-func (e *ErrClient) Unwrap(err error) error {
+func (e *ErrClient) Unwrap() error {
 	return e.err
 }
 
@@ -149,7 +149,7 @@ func httpClient(ctx context.Context, addr string, namespace string, outs []inter
 
 		hreq, err := http.NewRequest("POST", addr, bytes.NewReader(b))
 		if err != nil {
-			return clientResponse{}, err
+			return clientResponse{}, &RPCConnectionError{err}
 		}
 
 		hreq.Header = requestHeader.Clone()
@@ -162,7 +162,7 @@ func httpClient(ctx context.Context, addr string, namespace string, outs []inter
 
 		httpResp, err := _defaultHTTPClient.Do(hreq)
 		if err != nil {
-			return clientResponse{}, err
+			return clientResponse{}, &RPCConnectionError{err}
 		}
 		defer httpResp.Body.Close()
 
@@ -192,7 +192,7 @@ func websocketClient(ctx context.Context, addr string, namespace string, outs []
 	connFactory := func() (*websocket.Conn, error) {
 		conn, _, err := websocket.DefaultDialer.Dial(addr, requestHeader)
 		if err != nil {
-			return nil, xerrors.Errorf("cannot dial address %s for %w", addr, err)
+			return nil, &RPCConnectionError{xerrors.Errorf("cannot dial address %s for %w", addr, err)}
 		}
 		return conn, nil
 	}

@@ -131,6 +131,34 @@ func (h *SimpleServerHandler) ErrChanSub(ctx context.Context) (<-chan int, error
 	return nil, errors.New("expect to return an error")
 }
 
+func TestRPCBadConnection(t *testing.T) {
+	// setup server
+
+	serverHandler := &SimpleServerHandler{}
+
+	rpcServer := NewServer()
+	rpcServer.Register("SimpleServerHandler", serverHandler)
+
+	// httptest stuff
+	testServ := httptest.NewServer(rpcServer)
+	defer testServ.Close()
+	// setup client
+
+	var client struct {
+		Add         func(int) error
+		AddGet      func(int) int
+		StringMatch func(t TestType, i2 int64) (out TestOut, err error)
+		ErrChanSub  func(context.Context) (<-chan int, error)
+	}
+	closer, err := NewClient(context.Background(), "http://"+testServ.Listener.Addr().String()+"0", "SimpleServerHandler", &client, nil)
+	require.NoError(t, err)
+	err = client.Add(2)
+	require.True(t, errors.As(err, new(*RPCConnectionError)))
+
+	defer closer()
+
+}
+
 func TestRPC(t *testing.T) {
 	// setup server
 
