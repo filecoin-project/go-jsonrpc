@@ -150,8 +150,12 @@ func TestRPCBadConnection(t *testing.T) {
 		StringMatch func(t TestType, i2 int64) (out TestOut, err error)
 		ErrChanSub  func(context.Context) (<-chan int, error)
 	}
-	_, err := NewClient(context.Background(), "ws://"+testServ.Listener.Addr().String()+"0", "SimpleServerHandler", &client, nil)
+	closer, err := NewClient(context.Background(), "http://"+testServ.Listener.Addr().String()+"0", "SimpleServerHandler", &client, nil)
+	require.NoError(t, err)
+	err = client.Add(2)
 	require.True(t, errors.As(err, new(*RPCConnectionError)))
+
+	defer closer()
 
 }
 

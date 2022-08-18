@@ -60,7 +60,7 @@ func (e *ErrClient) Error() string {
 }
 
 // Unwrap unwraps the actual error
-func (e *ErrClient) Unwrap(err error) error {
+func (e *ErrClient) Unwrap() error {
 	return e.err
 }
 
