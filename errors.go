@@ -32,7 +32,7 @@ func NewErrors() Errors {
 	return Errors{
 		byType: map[reflect.Type]ErrorCode{},
 		byCode: map[ErrorCode]reflect.Type{
-			-1111111: reflect.TypeOf(RPCConnectionError{}),
+			-1111111: reflect.TypeOf(&RPCConnectionError{}),
 		},
 	}
 }
