@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -18,7 +19,6 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"go.opencensus.io/trace"
 	"go.opencensus.io/trace/propagation"
-	"golang.org/x/xerrors"
 )
 
 const (
@@ -113,7 +113,7 @@ func NewMergeClient(ctx context.Context, addr string, namespace string, outs []i
 
 	u, err := url.Parse(addr)
 	if err != nil {
-		return nil, xerrors.Errorf("parsing address: %w", err)
+		return nil, fmt.Errorf("parsing address: %w", err)
 	}
 
 	switch u.Scheme {
@@ -122,7 +122,7 @@ func NewMergeClient(ctx context.Context, addr string, namespace string, outs []i
 	case "http", "https":
 		return httpClient(ctx, addr, namespace, outs, requestHeader, config)
 	default:
-		return nil, xerrors.Errorf("unknown url scheme '%s'", u.Scheme)
+		return nil, fmt.Errorf("unknown url scheme '%s'", u.Scheme)
 	}
 
 }
@@ -183,10 +183,10 @@ func httpClient(ctx context.Context, addr string, namespace string, outs []inter
 
 		var respFrame frame
 		if err := json.NewDecoder(httpResp.Body).Decode(&respFrame); err != nil {
-			return clientResponse{ID: *cr.req.ID, Error: xerrors.Errorf("(%w) unmarshaling response: %s", rpcParseError, err)}
+			return clientResponse{ID: *cr.req.ID, Error: fmt.Errorf("(%w) unmarshaling response: %s", rpcParseError, err)}
 		}
 		if *respFrame.ID != *cr.req.ID {
-			return clientResponse{ID: *cr.req.ID, Error: xerrors.Errorf("(%w) request and response id didn't match", rpcWrongId)}
+			return clientResponse{ID: *cr.req.ID, Error: fmt.Errorf("(%w) request and response id didn't match", rpcWrongId)}
 		}
 
 		res := clientResponse{
@@ -213,7 +213,7 @@ func websocketClient(ctx context.Context, addr string, namespace string, outs []
 	connFactory := func() (*websocket.Conn, error) {
 		conn, _, err := websocket.DefaultDialer.Dial(addr, requestHeader)
 		if err != nil {
-			return conn, xerrors.Errorf("cannot dialer to addr %s due to %v", addr, err)
+			return conn, fmt.Errorf("cannot dial to addr %s due to %v", addr, err)
 		}
 		return conn, nil
 	}
@@ -314,11 +314,11 @@ func (c *client) provide(outs []interface{}) error {
 	for _, handler := range outs {
 		htyp := reflect.TypeOf(handler)
 		if htyp.Kind() != reflect.Ptr {
-			return xerrors.New("expected handler to be a pointer")
+			return errors.New("expected handler to be a pointer")
 		}
 		typ := htyp.Elem()
 		if typ.Kind() != reflect.Struct {
-			return xerrors.New("handler should be a struct")
+			return errors.New("handler should be a struct")
 		}
 
 		val := reflect.ValueOf(handler)
@@ -548,7 +548,7 @@ func (fn *rpcFunc) handleRpcCall(args []reflect.Value) (results []reflect.Value)
 	// has retry annotation
 	for attempt := 0; true; attempt++ {
 		resp = fn.client.sendRequest(ctx, req, chCtor)
-		if xerrors.Is(resp.Error, NetError) && fn.retry {
+		if errors.Is(resp.Error, NetError) && fn.retry {
 			waitTime := fn.backoff.next(attempt)
 			log.Errorf("wait %s retry to sendrequest method %s %s", waitTime, req.Method, resp.Error)
 			time.Sleep(waitTime)
@@ -556,7 +556,7 @@ func (fn *rpcFunc) handleRpcCall(args []reflect.Value) (results []reflect.Value)
 		}
 
 		if resp.ID != *req.ID {
-			return fn.processError(xerrors.New("request and response id didn't match"))
+			return fn.processError(errors.New("request and response id didn't match"))
 		}
 
 		if fn.valOut != -1 && !fn.returnValueIsChannel {
@@ -566,7 +566,7 @@ func (fn *rpcFunc) handleRpcCall(args []reflect.Value) (results []reflect.Value)
 				log.Debugw("rpc result", "type", fn.ftyp.Out(fn.valOut))
 				if err := json.Unmarshal(resp.Result, val.Interface()); err != nil {
 					log.Warnw("unmarshaling failed", "message", string(resp.Result))
-					return fn.processError(xerrors.Errorf("unmarshaling result: %w", err))
+					return fn.processError(fmt.Errorf("unmarshaling result: %w", err))
 				}
 			}
 
@@ -581,12 +581,12 @@ func (fn *rpcFunc) handleRpcCall(args []reflect.Value) (results []reflect.Value)
 func (c *client) makeRpcFunc(f reflect.StructField) (reflect.Value, error) {
 	ftyp := f.Type
 	if ftyp.Kind() != reflect.Func {
-		return reflect.Value{}, xerrors.New("handler field not a func")
+		return reflect.Value{}, errors.New("handler field not a func")
 	}
 
 	retry := c.retry
 	if val, ok := f.Tag.Lookup("retry"); ok {
-		retry = val == "true" //cover retry if has this tag
+		retry = val == "true" //use tag retry if has this tag and the value is true
 	}
 
 	fun := &rpcFunc{

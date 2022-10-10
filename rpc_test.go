@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"golang.org/x/xerrors"
 	"io"
 	"io/ioutil"
 	"math/rand"
@@ -221,7 +220,7 @@ func TestRPC(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = erronly.AddGet()
-	if err == nil || !xerrors.Is(err, rpcInvalidParams) {
+	if err == nil || !errors.Is(err, rpcInvalidParams) {
 		t.Error("wrong error:", err)
 	}
 	closer()
@@ -233,7 +232,7 @@ func TestRPC(t *testing.T) {
 	require.NoError(t, err)
 
 	err = wrongtype.Add("not an int")
-	if err == nil || !xerrors.Is(err, rpcParseError) {
+	if err == nil || !errors.Is(err, rpcParseError) {
 		t.Error("wrong error:", err)
 	}
 	closer()
@@ -245,7 +244,7 @@ func TestRPC(t *testing.T) {
 	require.NoError(t, err)
 
 	err = notfound.NotThere("hello?")
-	if err == nil || !xerrors.Is(err, rpcMethodNotFound) {
+	if err == nil || !errors.Is(err, rpcMethodNotFound) {
 		t.Error("wrong error:", err)
 	}
 	closer()
@@ -332,7 +331,7 @@ func TestRPCHttpClient(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = erronly.AddGet()
-	if err == nil || !xerrors.Is(err, rpcInvalidParams) {
+	if err == nil || !errors.Is(err, rpcInvalidParams) {
 		t.Error("wrong error:", err)
 	}
 	closer()
@@ -344,7 +343,7 @@ func TestRPCHttpClient(t *testing.T) {
 	require.NoError(t, err)
 
 	err = wrongtype.Add("not an int")
-	if err == nil || !xerrors.Is(err, rpcParseError) {
+	if err == nil || !errors.Is(err, rpcParseError) {
 		t.Error("wrong error:", err)
 	}
 	closer()
@@ -356,7 +355,7 @@ func TestRPCHttpClient(t *testing.T) {
 	require.NoError(t, err)
 
 	err = notfound.NotThere("hello?")
-	if err == nil || !xerrors.Is(err, rpcMethodNotFound) {
+	if err == nil || !errors.Is(err, rpcMethodNotFound) {
 		t.Error("wrong error:", err)
 	}
 	closer()

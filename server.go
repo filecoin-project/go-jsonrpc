@@ -3,7 +3,7 @@ package jsonrpc
 import (
 	"context"
 	"encoding/json"
-	"golang.org/x/xerrors"
+	"errors"
 	"io"
 	"net/http"
 	"reflect"
@@ -109,7 +109,7 @@ func rpcError(wf func(func(io.Writer)), req *request, err error) {
 		}
 
 		var code ErrorCode
-		_ = xerrors.As(err, &code)
+		_ = errors.As(err, &code)
 		resp := response{
 			Jsonrpc: "2.0",
 			ID:      *req.ID,

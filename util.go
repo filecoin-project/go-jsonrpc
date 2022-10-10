@@ -76,6 +76,5 @@ func (b *backoff) next(attempt int) time.Duration {
 	if delay > b.maxDelay || delay < 0 { //overflow
 		return b.maxDelay
 	}
-
 	return delay
 }

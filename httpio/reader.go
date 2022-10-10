@@ -11,11 +11,9 @@ import (
 	"reflect"
 	"sync"
 
+	"github.com/filecoin-project/go-jsonrpc"
 	"github.com/google/uuid"
 	logging "github.com/ipfs/go-log/v2"
-	"golang.org/x/xerrors"
-
-	"github.com/filecoin-project/go-jsonrpc"
 )
 
 var log = logging.Logger("rpc")
@@ -114,12 +112,12 @@ func ReaderParamDecoder() (http.HandlerFunc, jsonrpc.ServerOption) {
 	dec := jsonrpc.WithParamDecoder(new(io.Reader), func(ctx context.Context, b []byte) (reflect.Value, error) {
 		var strId string
 		if err := json.Unmarshal(b, &strId); err != nil {
-			return reflect.Value{}, xerrors.Errorf("unmarshaling reader id: %w", err)
+			return reflect.Value{}, fmt.Errorf("unmarshaling reader id: %w", err)
 		}
 
 		u, err := uuid.Parse(strId)
 		if err != nil {
-			return reflect.Value{}, xerrors.Errorf("parsing reader UUDD: %w", err)
+			return reflect.Value{}, fmt.Errorf("parsing reader UUDD: %w", err)
 		}
 
 		readersLk.Lock()
