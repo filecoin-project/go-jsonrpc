@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"reflect"
@@ -460,10 +461,10 @@ func (c *wsConn) closeInFlight() {
 	for _, cancel := range c.handling {
 		cancel()
 	}
+	c.handling = map[int64]context.CancelFunc{}
 	c.handlingLk.Unlock()
 
 	c.inflight = map[int64]clientRequest{}
-	c.handling = map[int64]context.CancelFunc{}
 }
 
 func (c *wsConn) closeChans() {
@@ -614,6 +615,10 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 					c.handleFrame(ctx, frame)
 					go c.nextMessage()
 					continue
+				} else {
+					err = fmt.Errorf("got err while decoder reader %w", err)
+					c.incomingErr = err //must set incomingErr, tell the request fail immediately
+					close(c.incoming)
 				}
 			}
 
