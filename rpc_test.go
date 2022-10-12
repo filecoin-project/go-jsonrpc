@@ -156,7 +156,6 @@ func TestRPCBadConnection(t *testing.T) {
 	require.True(t, errors.As(err, new(*RPCConnectionError)))
 
 	defer closer()
-
 }
 
 func TestRPC(t *testing.T) {
@@ -387,6 +386,30 @@ func TestRPCHttpClient(t *testing.T) {
 		t.Error("wrong error:", err)
 	}
 	closer()
+}
+
+func TestMethodAlias(t *testing.T) {
+	serverHandler := &SimpleServerHandler{}
+
+	aliases := map[string]string{
+		"SimpleServerHandler.AddInt": "SimpleServerHandler.Add",
+	}
+
+	rpcServer := NewServer(WithAliasedMethods(aliases))
+	rpcServer.Register("SimpleServerHandler", serverHandler)
+
+	testServ := httptest.NewServer(rpcServer)
+	defer testServ.Close()
+
+	var client struct {
+		AddInt func(int) error // will be aliased to Add
+	}
+	closer, err := NewClient(context.Background(), "http://"+testServ.Listener.Addr().String(), "SimpleServerHandler", &client, nil)
+	require.NoError(t, err)
+	defer closer()
+
+	require.NoError(t, client.AddInt(2))
+	require.Equal(t, 2, serverHandler.n)
 }
 
 type CtxHandler struct {
@@ -832,8 +855,7 @@ func TestServerChanLockClose(t *testing.T) {
 	<-serverHandler.ctxdone
 }
 
-type StreamingHandler struct {
-}
+type StreamingHandler struct{}
 
 func (h *StreamingHandler) GetData(ctx context.Context, n int) (<-chan int, error) {
 	out := make(chan int)
@@ -896,7 +918,6 @@ func TestChanClientReceiveAll(t *testing.T) {
 
 	tcancel()
 	testServ.Close()
-
 }
 
 func TestControlChanDeadlock(t *testing.T) {
@@ -944,7 +965,7 @@ func testControlChanDeadlock(t *testing.T) {
 		for i := 0; i < n; i++ {
 			if <-sub != i+1 {
 				panic("bad!")
-				//require.Equal(t, i+1, <-sub)
+				// require.Equal(t, i+1, <-sub)
 			}
 		}
 	}()
@@ -960,8 +981,7 @@ func testControlChanDeadlock(t *testing.T) {
 	<-done
 }
 
-type InterfaceHandler struct {
-}
+type InterfaceHandler struct{}
 
 func (h *InterfaceHandler) ReadAll(ctx context.Context, r io.Reader) ([]byte, error) {
 	return ioutil.ReadAll(r)

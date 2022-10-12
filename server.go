@@ -40,7 +40,7 @@ func NewServer(opts ...ServerOption) *RPCServer {
 
 	return &RPCServer{
 		methods:        map[string]rpcHandler{},
-		aliasedMethods: map[string]string{},
+		aliasedMethods: config.aliasedMethods,
 		paramDecoders:  config.paramDecoders,
 		maxRequestSize: config.maxRequestSize,
 		errors:         config.errors,
