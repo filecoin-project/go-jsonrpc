@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math/rand"
 	"net"
 	"net/http/httptest"
 	"reflect"
@@ -1106,4 +1107,28 @@ func TestUserError(t *testing.T) {
 	require.Equal(t, "this happened: some event", e.(*ErrMyErr).Error())
 
 	closer()
+}
+
+func TestBackoff(t *testing.T) {
+	min := 100 * time.Millisecond
+	max := 10 * time.Second
+	tcl := backoff{minDelay: min, maxDelay: max}
+
+	for i := 0; i < 1000; i++ {
+		dur := tcl.next(i)
+		assert.LessOrEqual(t, int64(min), int64(dur))
+		assert.LessOrEqual(t, int64(dur), int64(max))
+	}
+
+	counter := 0
+	for {
+		attempt := rand.Int()
+		dur := tcl.next(attempt)
+		assert.LessOrEqual(t, int64(min), int64(dur))
+		assert.LessOrEqual(t, int64(dur), int64(max))
+		if counter > 100 {
+			break
+		}
+		counter++
+	}
 }

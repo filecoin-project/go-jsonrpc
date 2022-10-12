@@ -16,6 +16,7 @@ type ParamEncoder func(reflect.Value) (reflect.Value, error)
 
 type Config struct {
 	retryBackoff backoff
+	reconnectBackoff backoff
 	pingInterval     time.Duration
 	timeout          time.Duration
 
@@ -28,6 +29,10 @@ type Config struct {
 
 func defaultConfig() Config {
 	return Config{
+		reconnectBackoff: backoff{
+			minDelay: 100 * time.Millisecond,
+			maxDelay: 5 * time.Second,
+		},
 		retryBackoff: backoff{
 			minDelay: methodMinRetryDelay,
 			maxDelay: methodMaxRetryDelay,
@@ -43,12 +48,22 @@ type Option func(c *Config)
 
 func WithReconnectBackoff(minDelay, maxDelay time.Duration) func(c *Config) {
 	return func(c *Config) {
+		c.reconnectBackoff = backoff{
+			minDelay: minDelay,
+			maxDelay: maxDelay,
+		}
+	}
+}
+
+func WithRetryBackoff(minDelay, maxDelay time.Duration) func(c *Config) {
+	return func(c *Config) {
 		c.retryBackoff = backoff{
 			minDelay: minDelay,
 			maxDelay: maxDelay,
 		}
 	}
 }
+
 
 // Must be < Timeout/2
 func WithPingInterval(d time.Duration) func(c *Config) {

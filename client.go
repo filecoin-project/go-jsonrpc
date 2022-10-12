@@ -266,7 +266,7 @@ func websocketClient(ctx context.Context, addr string, namespace string, outs []
 	go (&wsConn{
 		conn:             conn,
 		connFactory:      connFactory,
-		reconnectBackoff: config.retryBackoff,
+		reconnectBackoff: config.reconnectBackoff,
 		pingInterval:     config.pingInterval,
 		timeout:          config.timeout,
 		handler:          nil,
