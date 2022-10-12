@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -18,7 +19,6 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"go.opencensus.io/trace"
 	"go.opencensus.io/trace/propagation"
-	"golang.org/x/xerrors"
 )
 
 const (
@@ -113,7 +113,7 @@ func NewMergeClient(ctx context.Context, addr string, namespace string, outs []i
 
 	u, err := url.Parse(addr)
 	if err != nil {
-		return nil, xerrors.Errorf("parsing address: %w", err)
+		return nil, fmt.Errorf("parsing address: %w", err)
 	}
 
 	switch u.Scheme {
@@ -122,7 +122,7 @@ func NewMergeClient(ctx context.Context, addr string, namespace string, outs []i
 	case "http", "https":
 		return httpClient(ctx, addr, namespace, outs, requestHeader, config)
 	default:
-		return nil, xerrors.Errorf("unknown url scheme '%s'", u.Scheme)
+		return nil, fmt.Errorf("unknown url scheme '%s'", u.Scheme)
 	}
 
 }
@@ -144,7 +144,7 @@ func httpClient(ctx context.Context, addr string, namespace string, outs []inter
 	c.doRequest = func(ctx context.Context, cr clientRequest) (clientResponse, error) {
 		b, err := json.Marshal(&cr.req)
 		if err != nil {
-			return clientResponse{}, xerrors.Errorf("mershaling requset: %w", err)
+			return clientResponse{}, fmt.Errorf("mershaling requset: %w", err)
 		}
 
 		hreq, err := http.NewRequest("POST", addr, bytes.NewReader(b))
@@ -169,11 +169,11 @@ func httpClient(ctx context.Context, addr string, namespace string, outs []inter
 		var resp clientResponse
 
 		if err := json.NewDecoder(httpResp.Body).Decode(&resp); err != nil {
-			return clientResponse{}, xerrors.Errorf("http status %s unmarshaling response: %w", httpResp.Status, err)
+			return clientResponse{}, fmt.Errorf("http status %s unmarshaling response: %w", httpResp.Status, err)
 		}
 
 		if resp.ID != *cr.req.ID {
-			return clientResponse{}, xerrors.New("request and response id didn't match")
+			return clientResponse{}, errors.New("request and response id didn't match")
 		}
 
 		return resp, nil
@@ -192,7 +192,7 @@ func websocketClient(ctx context.Context, addr string, namespace string, outs []
 	connFactory := func() (*websocket.Conn, error) {
 		conn, _, err := websocket.DefaultDialer.Dial(addr, requestHeader)
 		if err != nil {
-			return nil, &RPCConnectionError{xerrors.Errorf("cannot dial address %s for %w", addr, err)}
+			return nil, &RPCConnectionError{fmt.Errorf("cannot dial address %s for %w", addr, err)}
 		}
 		return conn, nil
 	}
@@ -291,11 +291,11 @@ func (c *client) provide(outs []interface{}) error {
 	for _, handler := range outs {
 		htyp := reflect.TypeOf(handler)
 		if htyp.Kind() != reflect.Ptr {
-			return xerrors.New("expected handler to be a pointer")
+			return errors.New("expected handler to be a pointer")
 		}
 		typ := htyp.Elem()
 		if typ.Kind() != reflect.Struct {
-			return xerrors.New("handler should be a struct")
+			return errors.New("handler should be a struct")
 		}
 
 		val := reflect.ValueOf(handler)
@@ -536,7 +536,7 @@ func (fn *rpcFunc) handleRpcCall(args []reflect.Value) (results []reflect.Value)
 		}
 
 		if resp.ID != *req.ID {
-			return fn.processError(xerrors.New("request and response id didn't match"))
+			return fn.processError(errors.New("request and response id didn't match"))
 		}
 
 		if fn.valOut != -1 && !fn.returnValueIsChannel {
@@ -546,7 +546,7 @@ func (fn *rpcFunc) handleRpcCall(args []reflect.Value) (results []reflect.Value)
 				log.Debugw("rpc result", "type", fn.ftyp.Out(fn.valOut))
 				if err := json.Unmarshal(resp.Result, val.Interface()); err != nil {
 					log.Warnw("unmarshaling failed", "message", string(resp.Result))
-					return fn.processError(xerrors.Errorf("unmarshaling result: %w", err))
+					return fn.processError(fmt.Errorf("unmarshaling result: %w", err))
 				}
 			}
 
@@ -566,7 +566,7 @@ func (fn *rpcFunc) handleRpcCall(args []reflect.Value) (results []reflect.Value)
 func (c *client) makeRpcFunc(f reflect.StructField) (reflect.Value, error) {
 	ftyp := f.Type
 	if ftyp.Kind() != reflect.Func {
-		return reflect.Value{}, xerrors.New("handler field not a func")
+		return reflect.Value{}, errors.New("handler field not a func")
 	}
 
 	fun := &rpcFunc{

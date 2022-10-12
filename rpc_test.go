@@ -20,7 +20,6 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/xerrors"
 )
 
 func init() {
@@ -1095,10 +1094,10 @@ func TestUserError(t *testing.T) {
 	require.NoError(t, err)
 
 	e := client.Test()
-	require.True(t, xerrors.Is(e, ErrSomethingBad{}))
+	require.True(t, errors.Is(e, ErrSomethingBad{}))
 
 	e = client.TestP()
-	require.True(t, xerrors.Is(e, &ErrSomethingBad{}))
+	require.True(t, errors.Is(e, &ErrSomethingBad{}))
 
 	e = client.TestMy("some event")
 	require.Error(t, e)

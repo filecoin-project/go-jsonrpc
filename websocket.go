@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"golang.org/x/xerrors"
 )
 
 const wsCancel = "xrpc.cancel"
@@ -265,7 +264,7 @@ func (c *wsConn) handleChanOut(ch reflect.Value, req int64) error {
 	}:
 		return nil
 	case <-c.exiting:
-		return xerrors.New("connection closing")
+		return errors.New("connection closing")
 	}
 }
 

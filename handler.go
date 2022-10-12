@@ -15,7 +15,6 @@ import (
 	"go.opencensus.io/trace/propagation"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-jsonrpc/metrics"
 )
@@ -156,7 +155,7 @@ func (s *RPCServer) handleReader(ctx context.Context, r io.Reader, w io.Writer, 
 	if err != nil {
 		// ReadFrom will discard EOF so any error here is unexpected and should
 		// be reported.
-		rpcError(wf, &req, rpcParseError, xerrors.Errorf("reading request: %w", err))
+		rpcError(wf, &req, rpcParseError, fmt.Errorf("reading request: %w", err))
 		return
 	}
 	if reqSize > s.maxRequestSize {
@@ -164,13 +163,13 @@ func (s *RPCServer) handleReader(ctx context.Context, r io.Reader, w io.Writer, 
 			// rpcParseError is the closest we have from the standard errors defined
 			// in [jsonrpc spec](https://www.jsonrpc.org/specification#error_object)
 			// to report the maximum limit.
-			xerrors.Errorf("request bigger than maximum %d allowed",
+			fmt.Errorf("request bigger than maximum %d allowed",
 				s.maxRequestSize))
 		return
 	}
 
 	if err := json.NewDecoder(bufferedRequest).Decode(&req); err != nil {
-		rpcError(wf, &req, rpcParseError, xerrors.Errorf("unmarshaling request: %w", err))
+		rpcError(wf, &req, rpcParseError, fmt.Errorf("unmarshaling request: %w", err))
 		return
 	}
 
@@ -180,7 +179,7 @@ func (s *RPCServer) handleReader(ctx context.Context, r io.Reader, w io.Writer, 
 func doCall(methodName string, f reflect.Value, params []reflect.Value) (out []reflect.Value, err error) {
 	defer func() {
 		if i := recover(); i != nil {
-			err = xerrors.Errorf("panic in rpc method '%s': %s", methodName, i)
+			err = fmt.Errorf("panic in rpc method '%s': %s", methodName, i)
 			log.Desugar().WithOptions(zap.AddStacktrace(zapcore.ErrorLevel)).Sugar().Error(err)
 		}
 	}()
@@ -286,7 +285,7 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 		if !found {
 			rp = reflect.New(typ)
 			if err := json.NewDecoder(bytes.NewReader(req.Params[i].data)).Decode(rp.Interface()); err != nil {
-				rpcError(w, &req, rpcParseError, xerrors.Errorf("unmarshaling params for '%s' (param: %T): %w", req.Method, rp.Interface(), err))
+				rpcError(w, &req, rpcParseError, fmt.Errorf("unmarshaling params for '%s' (param: %T): %w", req.Method, rp.Interface(), err))
 				stats.Record(ctx, metrics.RPCRequestError.M(1))
 				return
 			}
@@ -295,7 +294,7 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 			var err error
 			rp, err = dec(ctx, req.Params[i].data)
 			if err != nil {
-				rpcError(w, &req, rpcParseError, xerrors.Errorf("decoding params for '%s' (param: %d; custom decoder): %w", req.Method, i, err))
+				rpcError(w, &req, rpcParseError, fmt.Errorf("decoding params for '%s' (param: %d; custom decoder): %w", req.Method, i, err))
 				stats.Record(ctx, metrics.RPCRequestError.M(1))
 				return
 			}
@@ -308,7 +307,7 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 
 	callResult, err := doCall(req.Method, handler.handlerFunc, callParams)
 	if err != nil {
-		rpcError(w, &req, 0, xerrors.Errorf("fatal error calling '%s': %w", req.Method, err))
+		rpcError(w, &req, 0, fmt.Errorf("fatal error calling '%s': %w", req.Method, err))
 		stats.Record(ctx, metrics.RPCRequestError.M(1))
 		return
 	}
