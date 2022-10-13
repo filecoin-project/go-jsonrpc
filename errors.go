@@ -30,7 +30,9 @@ const FirstUserCode = 2
 
 func NewErrors() Errors {
 	return Errors{
-		byType: map[reflect.Type]ErrorCode{},
+		byType: map[reflect.Type]ErrorCode{
+			 reflect.TypeOf(&RPCConnectionError{}):-1111111,
+		},
 		byCode: map[ErrorCode]reflect.Type{
 			-1111111: reflect.TypeOf(&RPCConnectionError{}),
 		},

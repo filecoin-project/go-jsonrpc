@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -19,11 +20,6 @@ import (
 	"go.opencensus.io/trace"
 	"go.opencensus.io/trace/propagation"
 	"golang.org/x/xerrors"
-)
-
-const (
-	methodMinRetryDelay = 100 * time.Millisecond
-	methodMaxRetryDelay = 10 * time.Minute
 )
 
 var (
@@ -96,6 +92,8 @@ func NewClient(ctx context.Context, addr string, namespace string, handler inter
 type client struct {
 	namespace     string
 	paramEncoders map[reflect.Type]ParamEncoder
+	backoff       backoff
+	retry 		  bool
 	errors        *Errors
 
 	doRequest func(context.Context, clientRequest) (clientResponse, error)
@@ -131,7 +129,9 @@ func httpClient(ctx context.Context, addr string, namespace string, outs []inter
 	c := client{
 		namespace:     namespace,
 		paramEncoders: config.paramEncoders,
+		backoff:       config.retryBackoff,
 		errors:        config.errors,
+		retry: 		   config.retry,
 	}
 
 	stop := make(chan struct{})
@@ -149,21 +149,33 @@ func httpClient(ctx context.Context, addr string, namespace string, outs []inter
 
 		hreq, err := http.NewRequest("POST", addr, bytes.NewReader(b))
 		if err != nil {
-			return clientResponse{}, &RPCConnectionError{err}
+			return clientResponse{}, xerrors.Errorf("illegal request: %w", err)
 		}
 
-		hreq.Header = requestHeader.Clone()
-
+		var cancelByCtx bool
 		if ctx != nil {
-			hreq = hreq.WithContext(ctx)
+			wCtx, wCancel := context.WithCancel(context.Background())
+			hreq = hreq.WithContext(wCtx)
+			go func() {
+				select {
+				case <-ctx.Done():
+					cancelByCtx = true
+					wCancel()
+				}
+			}()
 		}
 
 		hreq.Header.Set("Content-Type", "application/json")
 
-		httpResp, err := _defaultHTTPClient.Do(hreq)
+		httpResp, err := _defaultHTTPClient.Do(hreq) //todo cancel by timeout or neterror
 		if err != nil {
-			return clientResponse{}, &RPCConnectionError{err}
+			if cancelByCtx {
+				return clientResponse{}, fmt.Errorf("cancel by context %w", err)
+			} else {
+				return clientResponse{}, &RPCConnectionError{err}
+			}
 		}
+
 		defer httpResp.Body.Close()
 
 		var resp clientResponse
@@ -213,7 +225,9 @@ func websocketClient(ctx context.Context, addr string, namespace string, outs []
 
 	c := client{
 		namespace:     namespace,
+		backoff:       config.retryBackoff,
 		paramEncoders: config.paramEncoders,
+		retry: 		   config.retry,
 		errors:        config.errors,
 	}
 
@@ -254,7 +268,7 @@ func websocketClient(ctx context.Context, addr string, namespace string, outs []
 				case <-c.exiting:
 					log.Warn("failed to send request cancellation, websocket routing exited")
 				}
-
+				return clientResponse{}, errors.New("context by cancel")
 			}
 		}
 
@@ -433,7 +447,8 @@ type rpcFunc struct {
 	hasCtx               int
 	returnValueIsChannel bool
 
-	retry bool
+	retry   bool
+	backoff backoff
 }
 
 func (fn *rpcFunc) processResponse(resp clientResponse, rval reflect.Value) []reflect.Value {
@@ -520,11 +535,6 @@ func (fn *rpcFunc) handleRpcCall(args []reflect.Value) (results []reflect.Value)
 		}
 	}
 
-	b := backoff{
-		maxDelay: methodMaxRetryDelay,
-		minDelay: methodMinRetryDelay,
-	}
-
 	var resp clientResponse
 	var err error
 	// keep retrying if got a forced closed websocket conn and calling method
@@ -557,7 +567,7 @@ func (fn *rpcFunc) handleRpcCall(args []reflect.Value) (results []reflect.Value)
 			break
 		}
 
-		time.Sleep(b.next(attempt))
+		time.Sleep(fn.backoff.next(attempt))
 	}
 
 	return fn.processResponse(resp, retVal())
@@ -569,11 +579,17 @@ func (c *client) makeRpcFunc(f reflect.StructField) (reflect.Value, error) {
 		return reflect.Value{}, xerrors.New("handler field not a func")
 	}
 
+	retry := c.retry
+	if val, ok := f.Tag.Lookup("retry"); ok {
+		retry = val == "true" //use method retry
+	}
+
 	fun := &rpcFunc{
 		client: c,
 		ftyp:   ftyp,
 		name:   f.Name,
-		retry:  f.Tag.Get("retry") == "true",
+		backoff: c.backoff,
+		retry:  retry,
 	}
 	fun.valOut, fun.errOut, fun.nout = processFuncOut(ftyp)
 
