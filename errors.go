@@ -12,6 +12,9 @@ type RPCConnectionError struct {
 }
 
 func (e *RPCConnectionError) Error() string {
+	if e.err == nil {
+		return ""
+	}
 	return e.err.Error()
 }
 

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"math/rand"
 	"net"
 	"net/http/httptest"
@@ -126,6 +125,40 @@ func TestReconnection(t *testing.T) {
 	attemptsPerSecond := int64(connectionAttempts) / int64(captureDuration/time.Second)
 
 	assert.Less(t, attemptsPerSecond, int64(50))
+}
+
+type RetryServerHandler struct {
+	attemptCount int
+}
+
+func (h *RetryServerHandler) Add(ctx context.Context, in int) error {
+	if in == -3546 {
+		h.attemptCount++
+		return &RPCConnectionError{errors.New("mock connect error in rpc call")}
+	}
+	return nil
+}
+
+func TestGlobalRetry(t *testing.T) {
+	var rpcClient struct {
+		Add func(context.Context, int) error
+	}
+
+	rpcHandler := RetryServerHandler{}
+
+	rpcServer := NewServer(WithServerErrors(NewErrors()))
+	rpcServer.Register("SimpleServerHandler", &rpcHandler)
+
+	testServ := httptest.NewServer(rpcServer)
+	defer testServ.Close()
+
+	closer, err := NewMergeClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "SimpleServerHandler", []interface{}{&rpcClient}, nil, WithRetry(true))
+	require.NoError(t, err)
+	defer closer()
+	ctx, _ := context.WithTimeout(context.Background(), time.Second*10)
+	err = rpcClient.Add(ctx, -3546)
+	fmt.Println(err)
+	assert.True(t, rpcHandler.attemptCount > 1)
 }
 
 func (h *SimpleServerHandler) ErrChanSub(ctx context.Context) (<-chan int, error) {
@@ -965,7 +998,7 @@ type InterfaceHandler struct {
 }
 
 func (h *InterfaceHandler) ReadAll(ctx context.Context, r io.Reader) ([]byte, error) {
-	return ioutil.ReadAll(r)
+	return io.ReadAll(r)
 }
 
 func TestInterfaceHandler(t *testing.T) {
