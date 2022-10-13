@@ -12,6 +12,9 @@ type RPCConnectionError struct {
 }
 
 func (e *RPCConnectionError) Error() string {
+	if e.err == nil {
+		return ""
+	}
 	return e.err.Error()
 }
 
@@ -30,7 +33,9 @@ const FirstUserCode = 2
 
 func NewErrors() Errors {
 	return Errors{
-		byType: map[reflect.Type]ErrorCode{},
+		byType: map[reflect.Type]ErrorCode{
+			reflect.TypeOf(&RPCConnectionError{}): -1111111,
+		},
 		byCode: map[ErrorCode]reflect.Type{
 			-1111111: reflect.TypeOf(&RPCConnectionError{}),
 		},

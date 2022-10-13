@@ -73,7 +73,7 @@ func (b *backoff) next(attempt int) time.Duration {
 
 	delay := time.Duration(durf)
 
-	if delay > b.maxDelay {
+	if delay > b.maxDelay || delay < 0 { //overflow
 		return b.maxDelay
 	}
 

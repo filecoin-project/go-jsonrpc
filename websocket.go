@@ -275,10 +275,11 @@ func (c *wsConn) handleChanOut(ch reflect.Value, req int64) error {
 
 // handleCtxAsync handles context lifetimes for client
 // TODO: this should be aware of events going through chanHandlers, and quit
-//  when the related channel is closed.
-//  This should also probably be a single goroutine,
-//  Note that not doing this should be fine for now as long as we are using
-//  contexts correctly (cancelling when async functions are no longer is use)
+//
+//	when the related channel is closed.
+//	This should also probably be a single goroutine,
+//	Note that not doing this should be fine for now as long as we are using
+//	contexts correctly (cancelling when async functions are no longer is use)
 func (c *wsConn) handleCtxAsync(actx context.Context, id int64) {
 	<-actx.Done()
 
