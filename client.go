@@ -93,7 +93,7 @@ type client struct {
 	namespace     string
 	paramEncoders map[reflect.Type]ParamEncoder
 	backoff       backoff
-	retry 		  bool
+	retry         bool
 	errors        *Errors
 
 	doRequest func(context.Context, clientRequest) (clientResponse, error)
@@ -131,7 +131,7 @@ func httpClient(ctx context.Context, addr string, namespace string, outs []inter
 		paramEncoders: config.paramEncoders,
 		backoff:       config.retryBackoff,
 		errors:        config.errors,
-		retry: 		   config.retry,
+		retry:         config.retry,
 	}
 
 	stop := make(chan struct{})
@@ -227,7 +227,7 @@ func websocketClient(ctx context.Context, addr string, namespace string, outs []
 		namespace:     namespace,
 		backoff:       config.retryBackoff,
 		paramEncoders: config.paramEncoders,
-		retry: 		   config.retry,
+		retry:         config.retry,
 		errors:        config.errors,
 	}
 
@@ -585,11 +585,11 @@ func (c *client) makeRpcFunc(f reflect.StructField) (reflect.Value, error) {
 	}
 
 	fun := &rpcFunc{
-		client: c,
-		ftyp:   ftyp,
-		name:   f.Name,
+		client:  c,
+		ftyp:    ftyp,
+		name:    f.Name,
 		backoff: c.backoff,
-		retry:  retry,
+		retry:   retry,
 	}
 	fun.valOut, fun.errOut, fun.nout = processFuncOut(ftyp)
 

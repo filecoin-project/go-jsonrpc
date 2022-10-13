@@ -15,11 +15,11 @@ const (
 type ParamEncoder func(reflect.Value) (reflect.Value, error)
 
 type Config struct {
-	retryBackoff backoff
+	retryBackoff     backoff
 	reconnectBackoff backoff
 	pingInterval     time.Duration
 	timeout          time.Duration
-	retry 			 bool
+	retry            bool
 
 	paramEncoders map[reflect.Type]ParamEncoder
 	errors        *Errors
