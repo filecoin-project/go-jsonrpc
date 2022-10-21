@@ -22,7 +22,7 @@ const chClose = "xrpc.ch.close"
 type frame struct {
 	// common
 	Jsonrpc string            `json:"jsonrpc"`
-	ID      *int64            `json:"id,omitempty"`
+	ID      interface{}       `json:"id,omitempty"`
 	Meta    map[string]string `json:"meta,omitempty"`
 
 	// request
@@ -35,7 +35,7 @@ type frame struct {
 }
 
 type outChanReg struct {
-	reqID int64
+	reqID interface{}
 
 	chID uint64
 	ch   reflect.Value
@@ -66,7 +66,7 @@ type wsConn struct {
 	// Client related
 
 	// inflight are requests we've sent to the remote
-	inflight map[int64]clientRequest
+	inflight map[interface{}]clientRequest
 
 	// chanHandlers is a map of client-side channel handlers
 	chanHandlers map[uint64]func(m []byte, ok bool)
@@ -75,7 +75,7 @@ type wsConn struct {
 	// Server related
 
 	// handling are the calls we handle
-	handling   map[int64]context.CancelFunc
+	handling   map[interface{}]context.CancelFunc
 	handlingLk sync.Mutex
 
 	spawnOutChanHandlerOnce sync.Once
@@ -250,7 +250,7 @@ func (c *wsConn) handleOutChans() {
 }
 
 // handleChanOut registers output channel for forwarding to client
-func (c *wsConn) handleChanOut(ch reflect.Value, req int64) error {
+func (c *wsConn) handleChanOut(ch reflect.Value, req interface{}) error {
 	c.spawnOutChanHandlerOnce.Do(func() {
 		go c.handleOutChans()
 	})
@@ -279,7 +279,7 @@ func (c *wsConn) handleChanOut(ch reflect.Value, req int64) error {
 //  This should also probably be a single goroutine,
 //  Note that not doing this should be fine for now as long as we are using
 //  contexts correctly (cancelling when async functions are no longer is use)
-func (c *wsConn) handleCtxAsync(actx context.Context, id int64) {
+func (c *wsConn) handleCtxAsync(actx context.Context, id interface{}) {
 	<-actx.Done()
 
 	if err := c.sendRequest(request{
@@ -351,7 +351,7 @@ func (c *wsConn) handleChanClose(frame frame) {
 }
 
 func (c *wsConn) handleResponse(frame frame) {
-	req, ok := c.inflight[*frame.ID]
+	req, ok := c.inflight[frame.ID]
 	if !ok {
 		log.Error("client got unknown ID in response")
 		return
@@ -367,16 +367,16 @@ func (c *wsConn) handleResponse(frame frame) {
 
 		var chanCtx context.Context
 		chanCtx, c.chanHandlers[chid] = req.retCh()
-		go c.handleCtxAsync(chanCtx, *frame.ID)
+		go c.handleCtxAsync(chanCtx, frame.ID)
 	}
 
 	req.ready <- clientResponse{
 		Jsonrpc: frame.Jsonrpc,
 		Result:  frame.Result,
-		ID:      *frame.ID,
+		ID:      frame.ID,
 		Error:   frame.Error,
 	}
-	delete(c.inflight, *frame.ID)
+	delete(c.inflight, frame.ID)
 }
 
 func (c *wsConn) handleCall(ctx context.Context, frame frame) {
@@ -407,7 +407,7 @@ func (c *wsConn) handleCall(ctx context.Context, frame frame) {
 		nextWriter = c.nextWriter
 
 		c.handlingLk.Lock()
-		c.handling[*frame.ID] = cancel
+		c.handling[frame.ID] = cancel
 		c.handlingLk.Unlock()
 
 		done = func(keepctx bool) {
@@ -416,7 +416,7 @@ func (c *wsConn) handleCall(ctx context.Context, frame frame) {
 
 			if !keepctx {
 				cancel()
-				delete(c.handling, *frame.ID)
+				delete(c.handling, frame.ID)
 			}
 		}
 	}
@@ -462,8 +462,8 @@ func (c *wsConn) closeInFlight() {
 	}
 	c.handlingLk.Unlock()
 
-	c.inflight = map[int64]clientRequest{}
-	c.handling = map[int64]context.CancelFunc{}
+	c.inflight = map[interface{}]clientRequest{}
+	c.handling = map[interface{}]context.CancelFunc{}
 }
 
 func (c *wsConn) closeChans() {
@@ -558,8 +558,8 @@ func (c *wsConn) tryReconnect(ctx context.Context) bool {
 
 func (c *wsConn) handleWsConn(ctx context.Context) {
 	c.incoming = make(chan io.Reader)
-	c.inflight = map[int64]clientRequest{}
-	c.handling = map[int64]context.CancelFunc{}
+	c.inflight = map[interface{}]clientRequest{}
+	c.handling = map[interface{}]context.CancelFunc{}
 	c.chanHandlers = map[uint64]func(m []byte, ok bool){}
 	c.pongs = make(chan struct{}, 1)
 
@@ -609,11 +609,16 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 				// r = io.TeeReader(r, os.Stderr)
 
 				var frame frame
-				err = json.NewDecoder(r).Decode(&frame)
+				dec := json.NewDecoder(r)
+				dec.UseNumber()
+				err = dec.Decode(&frame)
+
 				if err == nil {
-					c.handleFrame(ctx, frame)
-					go c.nextMessage()
-					continue
+					if frame.ID, err = translateID(frame.ID); err == nil {
+						c.handleFrame(ctx, frame)
+						go c.nextMessage()
+						continue
+					}
 				}
 			}
 
@@ -632,7 +637,7 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 				if c.incomingErr != nil { // No conn?, immediate fail
 					req.ready <- clientResponse{
 						Jsonrpc: "2.0",
-						ID:      *req.req.ID,
+						ID:      req.req.ID,
 						Error: &respError{
 							Message: "handler: websocket connection closed",
 							Code:    eTempWSError,
@@ -641,7 +646,7 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 					c.writeLk.Unlock()
 					break
 				}
-				c.inflight[*req.req.ID] = req
+				c.inflight[req.req.ID] = req
 			}
 			c.writeLk.Unlock()
 			if err := c.sendRequest(req.req); err != nil {
@@ -683,5 +688,23 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 			c.writeLk.Unlock()
 			return
 		}
+	}
+}
+
+// Takes an ID as received on the wire, validates it, and translates it to a normalized ID appropriate for keying.
+func translateID(id interface{}) (interface{}, error) {
+	switch v := id.(type) {
+	case string:
+		return v, nil
+	case nil:
+		return nil, nil
+	case json.Number:
+		if v, err := v.Int64(); err == nil {
+			return v, nil
+		} else {
+			return nil, xerrors.Errorf("invalid non-integer id")
+		}
+	default:
+		return nil, xerrors.Errorf("invalid id type: %T", id)
 	}
 }

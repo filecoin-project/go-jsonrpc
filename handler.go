@@ -37,7 +37,7 @@ type rpcHandler struct {
 
 type request struct {
 	Jsonrpc string            `json:"jsonrpc"`
-	ID      *int64            `json:"id,omitempty"`
+	ID      interface{}       `json:"id,omitempty"`
 	Method  string            `json:"method"`
 	Params  []param           `json:"params"`
 	Meta    map[string]string `json:"meta,omitempty"`
@@ -90,7 +90,7 @@ func (e *respError) val(errors *Errors) reflect.Value {
 type response struct {
 	Jsonrpc string      `json:"jsonrpc"`
 	Result  interface{} `json:"result,omitempty"`
-	ID      int64       `json:"id"`
+	ID      interface{} `json:"id"`
 	Error   *respError  `json:"error,omitempty"`
 }
 
@@ -98,7 +98,7 @@ type response struct {
 
 func (s *RPCServer) register(namespace string, r interface{}) {
 	val := reflect.ValueOf(r)
-	//TODO: expect ptr
+	// TODO: expect ptr
 
 	for i := 0; i < val.NumMethod(); i++ {
 		method := val.Type().Method(i)
@@ -135,7 +135,7 @@ func (s *RPCServer) register(namespace string, r interface{}) {
 // Handle
 
 type rpcErrFunc func(w func(func(io.Writer)), req *request, code ErrorCode, err error)
-type chanOut func(reflect.Value, int64) error
+type chanOut func(reflect.Value, interface{}) error
 
 func (s *RPCServer) handleReader(ctx context.Context, r io.Reader, w io.Writer, rpcError rpcErrFunc) {
 	wf := func(cb func(io.Writer)) {
@@ -169,8 +169,15 @@ func (s *RPCServer) handleReader(ctx context.Context, r io.Reader, w io.Writer, 
 		return
 	}
 
-	if err := json.NewDecoder(bufferedRequest).Decode(&req); err != nil {
+	dec := json.NewDecoder(bufferedRequest)
+	dec.UseNumber()
+	if err := dec.Decode(&req); err != nil {
 		rpcError(wf, &req, rpcParseError, xerrors.Errorf("unmarshaling request: %w", err))
+		return
+	}
+
+	if req.ID, err = translateID(req.ID); err != nil {
+		rpcError(wf, &req, rpcParseError, xerrors.Errorf("failed to parse ID: %w", err))
 		return
 	}
 
@@ -304,7 +311,7 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 		callParams[i+1+handler.hasCtx] = reflect.ValueOf(rp.Interface())
 	}
 
-	///////////////////
+	// /////////////////
 
 	callResult, err := doCall(req.Method, handler.handlerFunc, callParams)
 	if err != nil {
@@ -316,11 +323,11 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 		return // notification
 	}
 
-	///////////////////
+	// /////////////////
 
 	resp := response{
 		Jsonrpc: "2.0",
-		ID:      *req.ID,
+		ID:      req.ID,
 	}
 
 	if handler.errOut != -1 {
@@ -350,7 +357,7 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 			// sending channel messages before this rpc call returns
 
 			//noinspection GoNilness // already checked above
-			err = chOut(callResult[handler.valOut], *req.ID)
+			err = chOut(callResult[handler.valOut], req.ID)
 			if err == nil {
 				return // channel goroutine handles responding
 			}
