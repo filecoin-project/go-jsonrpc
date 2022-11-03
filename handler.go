@@ -169,9 +169,7 @@ func (s *RPCServer) handleReader(ctx context.Context, r io.Reader, w io.Writer, 
 		return
 	}
 
-	dec := json.NewDecoder(bufferedRequest)
-	dec.UseNumber()
-	if err := dec.Decode(&req); err != nil {
+	if err := json.NewDecoder(bufferedRequest).Decode(&req); err != nil {
 		rpcError(wf, &req, rpcParseError, xerrors.Errorf("unmarshaling request: %w", err))
 		return
 	}

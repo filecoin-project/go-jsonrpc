@@ -167,10 +167,7 @@ func httpClient(ctx context.Context, addr string, namespace string, outs []inter
 		defer httpResp.Body.Close()
 
 		var resp clientResponse
-
-		dec := json.NewDecoder(httpResp.Body)
-		dec.UseNumber()
-		if err := dec.Decode(&resp); err != nil {
+		if err := json.NewDecoder(httpResp.Body).Decode(&resp); err != nil {
 			return clientResponse{}, xerrors.Errorf("http status %s unmarshaling response: %w", httpResp.Status, err)
 		}
 

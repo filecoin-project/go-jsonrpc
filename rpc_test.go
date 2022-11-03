@@ -1118,9 +1118,10 @@ func TestIDHandling(t *testing.T) {
 		expectErr bool
 	}{
 		{`{"id":"8116d306-56cc-4637-9dd7-39ce1548a5a0","jsonrpc":"2.0","method":"eth_blockNumber","params":[]}`, "8116d306-56cc-4637-9dd7-39ce1548a5a0", false},
-		{`{"id":1234,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]}`, int64(1234), false},
+		{`{"id":1234,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]}`, float64(1234), false},
 		{`{"id":null,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]}`, nil, false},
-		{`{"id":1.2,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]}`, nil, true},
+		{`{"id":1234.0,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]}`, 1234.0, false},
+		{`{"id":1.2,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]}`, 1.2, false},
 		{`{"id":["1"],"jsonrpc":"2.0","method":"eth_blockNumber","params":[]}`, nil, true},
 		{`{"id":{"a":"b"},"jsonrpc":"2.0","method":"eth_blockNumber","params":[]}`, nil, true},
 	}
@@ -1128,9 +1129,7 @@ func TestIDHandling(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(fmt.Sprintf("%v", tc.expect), func(t *testing.T) {
 			dec := json.NewDecoder(strings.NewReader(tc.str))
-			dec.UseNumber()
 			require.NoError(t, dec.Decode(&decoded))
-
 			if id, err := translateID(decoded.ID); !tc.expectErr {
 				require.NoError(t, err)
 				require.Equal(t, tc.expect, id)
