@@ -174,7 +174,7 @@ func (s *RPCServer) handleReader(ctx context.Context, r io.Reader, w io.Writer, 
 		return
 	}
 
-	if req.ID, err = translateID(req.ID); err != nil {
+	if req.ID, err = normalizeID(req.ID); err != nil {
 		rpcError(wf, &req, rpcParseError, xerrors.Errorf("failed to parse ID: %w", err))
 		return
 	}

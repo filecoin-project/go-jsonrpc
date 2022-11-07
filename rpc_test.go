@@ -1130,7 +1130,7 @@ func TestIDHandling(t *testing.T) {
 		t.Run(fmt.Sprintf("%v", tc.expect), func(t *testing.T) {
 			dec := json.NewDecoder(strings.NewReader(tc.str))
 			require.NoError(t, dec.Decode(&decoded))
-			if id, err := translateID(decoded.ID); !tc.expectErr {
+			if id, err := normalizeID(decoded.ID); !tc.expectErr {
 				require.NoError(t, err)
 				require.Equal(t, tc.expect, id)
 			} else {
