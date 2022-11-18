@@ -2,6 +2,7 @@ package jsonrpc
 
 import (
 	"encoding/json"
+	"errors"
 	"reflect"
 )
 
@@ -12,11 +13,17 @@ type RPCConnectionError struct {
 }
 
 func (e *RPCConnectionError) Error() string {
-	return e.err.Error()
+	if e.err != nil {
+		return e.err.Error()
+	}
+	return "RPCConnectionError"
 }
 
 func (e *RPCConnectionError) Unwrap() error {
-	return e.err
+	if e.err != nil {
+		return e.err
+	}
+	return errors.New("RPCConnectionError")
 }
 
 type Errors struct {
