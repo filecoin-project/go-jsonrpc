@@ -34,7 +34,6 @@ type rpcHandler struct {
 }
 
 // Request / response
-
 type request struct {
 	Jsonrpc string            `json:"jsonrpc"`
 	ID      interface{}       `json:"id,omitempty"`
@@ -168,14 +167,36 @@ func (s *RPCServer) handleReader(ctx context.Context, r io.Reader, w io.Writer, 
 				s.maxRequestSize))
 		return
 	}
+	// check if bufferedRequest is array or not.
+	if bufferedRequest.Bytes()[0] != '[' {
+		if err := json.Unmarshal(bufferedRequest.Bytes(), &req); err != nil {
+			rpcError(wf, &req, rpcParseError, xerrors.Errorf("unmarshaling request: %w", err))
+			return
+		}
+		s.doHandleRequest(ctx, wf, req, *bufferedRequest, rpcError)
 
-	if err := json.NewDecoder(bufferedRequest).Decode(&req); err != nil {
-		rpcError(wf, &req, rpcParseError, xerrors.Errorf("unmarshaling request: %w", err))
+	} else {
+		var reqs []request
+		if err := json.Unmarshal(bufferedRequest.Bytes(), &reqs); err != nil {
+			rpcError(wf, &req, rpcParseError, xerrors.Errorf("unmarshaling requests: %w", err))
+			return
+		}
+		for _, req := range reqs {
+			s.doHandleRequest(ctx, wf, req, *bufferedRequest, rpcError)
+		}
+
+	}
+}
+
+func (s *RPCServer) doHandleRequest(ctx context.Context, wf func(func(io.Writer)), req request, bufferedRequest bytes.Buffer, rpcError rpcErrFunc) {
+	if decoderErr := json.NewDecoder(&bufferedRequest).Decode(&req); decoderErr != nil {
+		rpcError(wf, &req, rpcParseError, xerrors.Errorf("unmarshaling request: %w", decoderErr))
 		return
 	}
 
-	if req.ID, err = normalizeID(req.ID); err != nil {
-		rpcError(wf, &req, rpcParseError, xerrors.Errorf("failed to parse ID: %w", err))
+	var normalizeErr error
+	if req.ID, normalizeErr = normalizeID(req.ID); normalizeErr != nil {
+		rpcError(wf, &req, rpcParseError, xerrors.Errorf("failed to parse ID: %w", normalizeErr))
 		return
 	}
 

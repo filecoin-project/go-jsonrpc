@@ -1139,3 +1139,36 @@ func TestIDHandling(t *testing.T) {
 		})
 	}
 }
+
+func TestIDArrayHandling(t *testing.T) {
+	cases := []struct {
+		str       string
+		expect    interface{}
+		expectErr bool
+	}{
+		{`[{"id":1234,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]}]`, float64(1234), false},
+		{`[{"id":4567,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]}]`, float64(4567), false},
+	}
+
+	for _, tc := range cases {
+		t.Run(fmt.Sprintf("%v", tc.expect), func(t *testing.T) {
+
+			// if tc.str is array
+			if tc.str[0] == '[' {
+				dec := json.NewDecoder(strings.NewReader(tc.str))
+				var arr []request
+				require.NoError(t, dec.Decode(&arr))
+				for _, req := range arr {
+					if id, err := normalizeID(req.ID); !tc.expectErr {
+						require.NoError(t, err)
+						require.Equal(t, tc.expect, id)
+					} else {
+						require.Error(t, err)
+					}
+				}
+			}
+		})
+	}
+}
+
+//
