@@ -45,6 +45,10 @@ type outChanReg struct {
 	ch   reflect.Value
 }
 
+type reqestHandler interface {
+	handle(ctx context.Context, req request, w func(func(io.Writer)), rpcError rpcErrFunc, done func(keepCtx bool), chOut chanOut)
+}
+
 type wsConn struct {
 	// outside params
 	conn             *websocket.Conn
@@ -52,7 +56,7 @@ type wsConn struct {
 	reconnectBackoff backoff
 	pingInterval     time.Duration
 	timeout          time.Duration
-	handler          *RPCServer
+	handler          reqestHandler
 	requests         <-chan clientRequest
 	pongs            chan struct{}
 	stopPings        func()

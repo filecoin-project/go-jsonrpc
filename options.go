@@ -10,6 +10,11 @@ import (
 
 type ParamEncoder func(reflect.Value) (reflect.Value, error)
 
+type clientHandler struct {
+	ns  string
+	hnd interface{}
+}
+
 type Config struct {
 	reconnectBackoff backoff
 	pingInterval     time.Duration
@@ -17,6 +22,8 @@ type Config struct {
 
 	paramEncoders map[reflect.Type]ParamEncoder
 	errors        *Errors
+
+	reverseHandlers []clientHandler
 
 	httpClient *http.Client
 
@@ -78,6 +85,12 @@ func WithParamEncoder(t interface{}, encoder ParamEncoder) func(c *Config) {
 func WithErrors(es Errors) func(c *Config) {
 	return func(c *Config) {
 		c.errors = &es
+	}
+}
+
+func WithClientHandler(ns string, hnd interface{}) func(c *Config) {
+	return func(c *Config) {
+		c.reverseHandlers = append(c.reverseHandlers, clientHandler{ns, hnd})
 	}
 }
 

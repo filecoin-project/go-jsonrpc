@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"reflect"
 	"strings"
 	"time"
 
@@ -20,19 +19,10 @@ const (
 
 // RPCServer provides a jsonrpc 2.0 http server handler
 type RPCServer struct {
-	methods map[string]rpcHandler
-	errors  *Errors
-
-	// aliasedMethods contains a map of alias:original method names.
-	// These are used as fallbacks if a method is not found by the given method name.
-	aliasedMethods map[string]string
-
-	paramDecoders map[reflect.Type]ParamDecoder
-
+	*handler
 	reverseClientBuilder func(context.Context, *wsConn) (context.Context, error)
 
 	pingInterval   time.Duration
-	maxRequestSize int64
 }
 
 // NewServer creates new RPCServer instance
@@ -43,12 +33,8 @@ func NewServer(opts ...ServerOption) *RPCServer {
 	}
 
 	return &RPCServer{
-		methods:              map[string]rpcHandler{},
-		aliasedMethods:       map[string]string{},
-		paramDecoders:        config.paramDecoders,
+		handler:              makeHandler(config),
 		reverseClientBuilder: config.reverseClientBuilder,
-		maxRequestSize:       config.maxRequestSize,
-		errors:               config.errors,
 
 		pingInterval: config.pingInterval,
 	}

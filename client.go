@@ -226,13 +226,22 @@ func websocketClient(ctx context.Context, addr string, namespace string, outs []
 	exiting := make(chan struct{})
 	c.exiting = exiting
 
+	var hnd reqestHandler
+	if len(config.reverseHandlers) > 0 {
+		h := makeHandler(defaultServerConfig())
+		for _, reverseHandler := range config.reverseHandlers {
+			h.register(reverseHandler.ns, reverseHandler.hnd)
+		}
+		hnd = h
+	}
+
 	go (&wsConn{
 		conn:             conn,
 		connFactory:      connFactory,
 		reconnectBackoff: config.reconnectBackoff,
 		pingInterval:     config.pingInterval,
 		timeout:          config.timeout,
-		handler:          nil,
+		handler:          hnd,
 		requests:         requests,
 		stop:             stop,
 		exiting:          exiting,

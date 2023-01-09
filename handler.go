@@ -20,7 +20,8 @@ import (
 	"github.com/filecoin-project/go-jsonrpc/metrics"
 )
 
-type rpcHandler struct {
+// methodHandler is a handler for a single method
+type methodHandler struct {
 	paramReceivers []reflect.Type
 	nParams        int
 
@@ -94,9 +95,34 @@ type response struct {
 	Error   *respError  `json:"error,omitempty"`
 }
 
+type handler struct {
+	methods map[string]methodHandler
+	errors  *Errors
+
+	maxRequestSize int64
+
+	// aliasedMethods contains a map of alias:original method names.
+	// These are used as fallbacks if a method is not found by the given method name.
+	aliasedMethods map[string]string
+
+	paramDecoders map[reflect.Type]ParamDecoder
+}
+
+func makeHandler(sc ServerConfig) *handler {
+	return &handler{
+		methods: make(map[string]methodHandler),
+		errors:  sc.errors,
+
+		aliasedMethods: map[string]string{},
+		paramDecoders:  sc.paramDecoders,
+
+		maxRequestSize: sc.maxRequestSize,
+	}
+}
+
 // Register
 
-func (s *RPCServer) register(namespace string, r interface{}) {
+func (s *handler) register(namespace string, r interface{}) {
 	val := reflect.ValueOf(r)
 	// TODO: expect ptr
 
@@ -117,7 +143,7 @@ func (s *RPCServer) register(namespace string, r interface{}) {
 
 		valOut, errOut, _ := processFuncOut(funcType)
 
-		s.methods[namespace+"."+method.Name] = rpcHandler{
+		s.methods[namespace+"."+method.Name] = methodHandler{
 			paramReceivers: recvs,
 			nParams:        ins,
 
@@ -137,7 +163,7 @@ func (s *RPCServer) register(namespace string, r interface{}) {
 type rpcErrFunc func(w func(func(io.Writer)), req *request, code ErrorCode, err error)
 type chanOut func(reflect.Value, interface{}) error
 
-func (s *RPCServer) handleReader(ctx context.Context, r io.Reader, w io.Writer, rpcError rpcErrFunc) {
+func (s *handler) handleReader(ctx context.Context, r io.Reader, w io.Writer, rpcError rpcErrFunc) {
 	wf := func(cb func(io.Writer)) {
 		cb(w)
 	}
@@ -194,7 +220,7 @@ func doCall(methodName string, f reflect.Value, params []reflect.Value) (out []r
 	return out, nil
 }
 
-func (s *RPCServer) getSpan(ctx context.Context, req request) (context.Context, *trace.Span) {
+func (s *handler) getSpan(ctx context.Context, req request) (context.Context, *trace.Span) {
 	if req.Meta == nil {
 		return ctx, nil
 	}
@@ -221,7 +247,7 @@ func (s *RPCServer) getSpan(ctx context.Context, req request) (context.Context, 
 	return ctx, span
 }
 
-func (s *RPCServer) createError(err error) *respError {
+func (s *handler) createError(err error) *respError {
 	var code ErrorCode = 1
 	if s.errors != nil {
 		c, ok := s.errors.byType[reflect.TypeOf(err)]
@@ -245,7 +271,7 @@ func (s *RPCServer) createError(err error) *respError {
 	return out
 }
 
-func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writer)), rpcError rpcErrFunc, done func(keepCtx bool), chOut chanOut) {
+func (s *handler) handle(ctx context.Context, req request, w func(func(io.Writer)), rpcError rpcErrFunc, done func(keepCtx bool), chOut chanOut) {
 	// Not sure if we need to sanitize the incoming req.Method or not.
 	ctx, span := s.getSpan(ctx, req)
 	ctx, _ = tag.New(ctx, tag.Insert(metrics.RPCMethod, req.Method))

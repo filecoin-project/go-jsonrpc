@@ -1142,8 +1142,8 @@ func TestIDHandling(t *testing.T) {
 	}
 }
 
-// 1. make server call on client
-// 2. make client handle
+// 1. make server call on client **
+// 2. make client handle **
 // 3. alias on client
 // 4. alias call on server
 // 6. custom/object param type
@@ -1174,11 +1174,17 @@ type RevCallTestClientProxy struct {
 	CallOnClient func(int) (int, error)
 }
 
-func TestServerCallUser(t *testing.T) {
+type RevCallTestClientHandler struct {
+}
+
+func (h *RevCallTestClientHandler) CallOnClient(a int) (int, error) {
+	return a * 2, nil
+}
+
+func TestReverseCall(t *testing.T) {
 	// setup server
 
 	rpcServer := NewServer(WithReverseClient[RevCallTestClientProxy]("Client"))
-
 	rpcServer.Register("Server", &RevCallTestServerHandler{})
 
 	// httptest stuff
@@ -1192,8 +1198,10 @@ func TestServerCallUser(t *testing.T) {
 	}
 	closer, err := NewMergeClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "Server", []interface{}{
 		&client,
-	}, nil)
+	}, nil, WithClientHandler("Client", &RevCallTestClientHandler{}))
 	require.NoError(t, err)
+
+	// do the call!
 
 	e := client.Call()
 	require.NoError(t, e)
