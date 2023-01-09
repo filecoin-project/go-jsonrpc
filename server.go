@@ -29,6 +29,8 @@ type RPCServer struct {
 
 	paramDecoders map[reflect.Type]ParamDecoder
 
+	reverseClientBuilder func(context.Context, *wsConn) (context.Context, error)
+
 	pingInterval   time.Duration
 	maxRequestSize int64
 }
@@ -41,11 +43,12 @@ func NewServer(opts ...ServerOption) *RPCServer {
 	}
 
 	return &RPCServer{
-		methods:        map[string]rpcHandler{},
-		aliasedMethods: map[string]string{},
-		paramDecoders:  config.paramDecoders,
-		maxRequestSize: config.maxRequestSize,
-		errors:         config.errors,
+		methods:              map[string]rpcHandler{},
+		aliasedMethods:       map[string]string{},
+		paramDecoders:        config.paramDecoders,
+		reverseClientBuilder: config.reverseClientBuilder,
+		maxRequestSize:       config.maxRequestSize,
+		errors:               config.errors,
 
 		pingInterval: config.pingInterval,
 	}
@@ -72,12 +75,23 @@ func (s *RPCServer) handleWS(ctx context.Context, w http.ResponseWriter, r *http
 		return
 	}
 
-	(&wsConn{
+	wc := &wsConn{
 		conn:         c,
 		handler:      s,
 		pingInterval: s.pingInterval,
 		exiting:      make(chan struct{}),
-	}).handleWsConn(ctx)
+	}
+
+	if s.reverseClientBuilder != nil {
+		ctx, err = s.reverseClientBuilder(ctx, wc)
+		if err != nil {
+			log.Errorf("failed to build reverse client: %s", err)
+			w.WriteHeader(500)
+			return
+		}
+	}
+
+	wc.handleWsConn(ctx)
 
 	if err := c.Close(); err != nil {
 		log.Errorw("closing websocket connection", "error", err)

@@ -220,6 +220,35 @@ func websocketClient(ctx context.Context, addr string, namespace string, outs []
 		errors:        config.errors,
 	}
 
+	requests := c.setup()
+
+	stop := make(chan struct{})
+	exiting := make(chan struct{})
+	c.exiting = exiting
+
+	go (&wsConn{
+		conn:             conn,
+		connFactory:      connFactory,
+		reconnectBackoff: config.reconnectBackoff,
+		pingInterval:     config.pingInterval,
+		timeout:          config.timeout,
+		handler:          nil,
+		requests:         requests,
+		stop:             stop,
+		exiting:          exiting,
+	}).handleWsConn(ctx)
+
+	if err := c.provide(outs); err != nil {
+		return nil, err
+	}
+
+	return func() {
+		close(stop)
+		<-exiting
+	}, nil
+}
+
+func (c *client) setup() chan clientRequest {
 	requests := make(chan clientRequest)
 
 	c.doRequest = func(ctx context.Context, cr clientRequest) (clientResponse, error) {
@@ -264,30 +293,7 @@ func websocketClient(ctx context.Context, addr string, namespace string, outs []
 		return resp, nil
 	}
 
-	stop := make(chan struct{})
-	exiting := make(chan struct{})
-	c.exiting = exiting
-
-	go (&wsConn{
-		conn:             conn,
-		connFactory:      connFactory,
-		reconnectBackoff: config.reconnectBackoff,
-		pingInterval:     config.pingInterval,
-		timeout:          config.timeout,
-		handler:          nil,
-		requests:         requests,
-		stop:             stop,
-		exiting:          exiting,
-	}).handleWsConn(ctx)
-
-	if err := c.provide(outs); err != nil {
-		return nil, err
-	}
-
-	return func() {
-		close(stop)
-		<-exiting
-	}, nil
+	return requests
 }
 
 func (c *client) provide(outs []interface{}) error {

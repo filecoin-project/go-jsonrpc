@@ -386,7 +386,7 @@ func (c *wsConn) handleResponse(frame frame) {
 
 func (c *wsConn) handleCall(ctx context.Context, frame frame) {
 	if c.handler == nil {
-		log.Error("handleCall on client")
+		log.Error("handleCall on client with no reverse handler")
 		return
 	}
 

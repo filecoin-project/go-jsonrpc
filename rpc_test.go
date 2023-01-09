@@ -1141,3 +1141,62 @@ func TestIDHandling(t *testing.T) {
 		})
 	}
 }
+
+// 1. make server call on client
+// 2. make client handle
+// 3. alias on client
+// 4. alias call on server
+// 6. custom/object param type
+// 7. notif mode proxy tag
+
+type RevCallTestServerHandler struct {
+}
+
+func (h *RevCallTestServerHandler) Call(ctx context.Context) error {
+	revClient, ok := ExtractReverseClient[RevCallTestClientProxy](ctx)
+	if !ok {
+		return fmt.Errorf("no reverse client")
+	}
+
+	r, err := revClient.CallOnClient(7) // multiply by 2 on client
+	if err != nil {
+		return xerrors.Errorf("call on client: %w", err)
+	}
+
+	if r != 14 {
+		return fmt.Errorf("unexpected result: %d", r)
+	}
+
+	return nil
+}
+
+type RevCallTestClientProxy struct {
+	CallOnClient func(int) (int, error)
+}
+
+func TestServerCallUser(t *testing.T) {
+	// setup server
+
+	rpcServer := NewServer(WithReverseClient[RevCallTestClientProxy]("Client"))
+
+	rpcServer.Register("Server", &RevCallTestServerHandler{})
+
+	// httptest stuff
+	testServ := httptest.NewServer(rpcServer)
+	defer testServ.Close()
+
+	// setup client
+
+	var client struct {
+		Call func() error
+	}
+	closer, err := NewMergeClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "Server", []interface{}{
+		&client,
+	}, nil)
+	require.NoError(t, err)
+
+	e := client.Call()
+	require.NoError(t, e)
+
+	closer()
+}
