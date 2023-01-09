@@ -1220,12 +1220,49 @@ func TestNotif(t *testing.T) {
 	t.Run("http", tc("http"))
 }
 
-// 1. make server call on client **
-// 2. make client handle **
-// 3. alias on client **
-// 4. alias call on server **
-// 6. custom/object param type
-// 7. notif mode proxy tag
+type RawParamHandler struct {
+}
+
+type CustomParams struct {
+	I int
+}
+
+func (h *RawParamHandler) Call(ctx context.Context, ps RawParams) (int, error) {
+	p, err := DecodeParams[CustomParams](ps)
+	if err != nil {
+		return 0, err
+	}
+	return p.I + 1, nil
+}
+
+func TestCallWithRawParams(t *testing.T) {
+	// setup server
+
+	rpcServer := NewServer()
+	rpcServer.Register("Raw", &RawParamHandler{})
+
+	// httptest stuff
+	testServ := httptest.NewServer(rpcServer)
+	defer testServ.Close()
+
+	// setup client
+	var client struct {
+		Call func(ctx context.Context, ps RawParams) (int, error)
+	}
+	closer, err := NewMergeClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "Raw", []interface{}{
+		&client,
+	}, nil)
+	require.NoError(t, err)
+
+	// do the call!
+
+	// this will block if it's not sent as a notification
+	n, err := client.Call(context.Background(), []byte(`{"I": 1}`))
+	require.NoError(t, err)
+	require.Equal(t, 2, n)
+
+	closer()
+}
 
 type RevCallTestServerHandler struct {
 }

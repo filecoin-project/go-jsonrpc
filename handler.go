@@ -20,6 +20,20 @@ import (
 	"github.com/filecoin-project/go-jsonrpc/metrics"
 )
 
+type RawParams json.RawMessage
+
+var rtRawParams = reflect.TypeOf(RawParams{})
+
+// todo is there a better way to tell 'struct with any number of fields'?
+func DecodeParams[T any](p RawParams) (T, error) {
+	var t T
+	err := json.Unmarshal(p, &t)
+
+	// todo also handle list-encoding automagically (json.Unmarshal doesn't do that, does it?)
+
+	return t, err
+}
+
 // methodHandler is a handler for a single method
 type methodHandler struct {
 	paramReceivers []reflect.Type
@@ -28,7 +42,8 @@ type methodHandler struct {
 	receiver    reflect.Value
 	handlerFunc reflect.Value
 
-	hasCtx int
+	hasCtx       int
+	hasRawParams bool
 
 	errOut int
 	valOut int
@@ -40,7 +55,7 @@ type request struct {
 	Jsonrpc string            `json:"jsonrpc"`
 	ID      interface{}       `json:"id,omitempty"`
 	Method  string            `json:"method"`
-	Params  []param           `json:"params"`
+	Params  json.RawMessage   `json:"params"`
 	Meta    map[string]string `json:"meta,omitempty"`
 }
 
@@ -135,9 +150,16 @@ func (s *handler) register(namespace string, r interface{}) {
 			hasCtx = 1
 		}
 
+		hasRawParams := false
 		ins := funcType.NumIn() - 1 - hasCtx
 		recvs := make([]reflect.Type, ins)
 		for i := 0; i < ins; i++ {
+			if hasRawParams && i > 0 {
+				panic("raw params must be the last parameter")
+			}
+			if funcType.In(i+1+hasCtx) == rtRawParams {
+				hasRawParams = true
+			}
 			recvs[i] = method.Type.In(i + 1 + hasCtx)
 		}
 
@@ -150,7 +172,8 @@ func (s *handler) register(namespace string, r interface{}) {
 			handlerFunc: method.Func,
 			receiver:    val,
 
-			hasCtx: hasCtx,
+			hasCtx:       hasCtx,
+			hasRawParams: hasRawParams,
 
 			errOut: errOut,
 			valOut: valOut,
@@ -291,13 +314,6 @@ func (s *handler) handle(ctx context.Context, req request, w func(func(io.Writer
 		}
 	}
 
-	if len(req.Params) != handler.nParams {
-		rpcError(w, &req, rpcInvalidParams, fmt.Errorf("wrong param count (method '%s'): %d != %d", req.Method, len(req.Params), handler.nParams))
-		stats.Record(ctx, metrics.RPCRequestError.M(1))
-		done(false)
-		return
-	}
-
 	outCh := handler.valOut != -1 && handler.handlerFunc.Type().Out(handler.valOut).Kind() == reflect.Chan
 	defer done(outCh)
 
@@ -313,30 +329,54 @@ func (s *handler) handle(ctx context.Context, req request, w func(func(io.Writer
 		callParams[1] = reflect.ValueOf(ctx)
 	}
 
-	for i := 0; i < handler.nParams; i++ {
-		var rp reflect.Value
+	if handler.hasRawParams {
+		// When hasRawParams is true, there is only one parameter and it is a
+		// json.RawMessage.
 
-		typ := handler.paramReceivers[i]
-		dec, found := s.paramDecoders[typ]
-		if !found {
-			rp = reflect.New(typ)
-			if err := json.NewDecoder(bytes.NewReader(req.Params[i].data)).Decode(rp.Interface()); err != nil {
-				rpcError(w, &req, rpcParseError, xerrors.Errorf("unmarshaling params for '%s' (param: %T): %w", req.Method, rp.Interface(), err))
-				stats.Record(ctx, metrics.RPCRequestError.M(1))
-				return
-			}
-			rp = rp.Elem()
-		} else {
-			var err error
-			rp, err = dec(ctx, req.Params[i].data)
-			if err != nil {
-				rpcError(w, &req, rpcParseError, xerrors.Errorf("decoding params for '%s' (param: %d; custom decoder): %w", req.Method, i, err))
-				stats.Record(ctx, metrics.RPCRequestError.M(1))
-				return
-			}
+		callParams[1+handler.hasCtx] = reflect.ValueOf(RawParams(req.Params))
+	} else {
+		// "normal" param list; no good way to do named params in Golang
+
+		var ps []param
+		err := json.Unmarshal(req.Params, &ps)
+		if err != nil {
+			rpcError(w, &req, rpcParseError, xerrors.Errorf("unmarshaling param array: %w", err))
+			stats.Record(ctx, metrics.RPCRequestError.M(1))
+			return
 		}
 
-		callParams[i+1+handler.hasCtx] = reflect.ValueOf(rp.Interface())
+		if len(ps) != handler.nParams {
+			rpcError(w, &req, rpcInvalidParams, fmt.Errorf("wrong param count (method '%s'): %d != %d", req.Method, len(ps), handler.nParams))
+			stats.Record(ctx, metrics.RPCRequestError.M(1))
+			done(false)
+			return
+		}
+
+		for i := 0; i < handler.nParams; i++ {
+			var rp reflect.Value
+
+			typ := handler.paramReceivers[i]
+			dec, found := s.paramDecoders[typ]
+			if !found {
+				rp = reflect.New(typ)
+				if err := json.NewDecoder(bytes.NewReader(ps[i].data)).Decode(rp.Interface()); err != nil {
+					rpcError(w, &req, rpcParseError, xerrors.Errorf("unmarshaling params for '%s' (param: %T): %w", req.Method, rp.Interface(), err))
+					stats.Record(ctx, metrics.RPCRequestError.M(1))
+					return
+				}
+				rp = rp.Elem()
+			} else {
+				var err error
+				rp, err = dec(ctx, ps[i].data)
+				if err != nil {
+					rpcError(w, &req, rpcParseError, xerrors.Errorf("decoding params for '%s' (param: %d; custom decoder): %w", req.Method, i, err))
+					stats.Record(ctx, metrics.RPCRequestError.M(1))
+					return
+				}
+			}
+
+			callParams[i+1+handler.hasCtx] = reflect.ValueOf(rp.Interface())
+		}
 	}
 
 	// /////////////////

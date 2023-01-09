@@ -286,11 +286,16 @@ func (c *client) setupRequestChan() chan clientRequest {
 			case <-ctxDone: // send cancel request
 				ctxDone = nil
 
+				rp, err := json.Marshal([]param{{v: reflect.ValueOf(cr.req.ID)}})
+				if err != nil {
+					return clientResponse{}, xerrors.Errorf("marshalling cancel request: %w", err)
+				}
+
 				cancelReq := clientRequest{
 					req: request{
 						Jsonrpc: "2.0",
 						Method:  wsCancel,
-						Params:  []param{{v: reflect.ValueOf(cr.req.ID)}},
+						Params:  rp,
 					},
 					ready: make(chan clientResponse, 1),
 				}
@@ -452,7 +457,11 @@ type rpcFunc struct {
 	valOut int
 	errOut int
 
-	hasCtx               int
+	// hasCtx is 1 if the function has a context.Context as its first argument.
+	// Used as the number of the first non-context argument.
+	hasCtx int
+
+	hasRawParams         bool
 	returnValueIsChannel bool
 
 	retry  bool
@@ -507,20 +516,31 @@ func (fn *rpcFunc) handleRpcCall(args []reflect.Value) (results []reflect.Value)
 		}
 	}
 
-	params := make([]param, len(args)-fn.hasCtx)
-	for i, arg := range args[fn.hasCtx:] {
-		enc, found := fn.client.paramEncoders[arg.Type()]
-		if found {
-			// custom param encoder
-			var err error
-			arg, err = enc(arg)
-			if err != nil {
-				return fn.processError(fmt.Errorf("sendRequest failed: %w", err))
+	var serializedParams json.RawMessage
+
+	if fn.hasRawParams {
+		serializedParams = json.RawMessage(args[fn.hasCtx].Interface().(RawParams))
+	} else {
+		params := make([]param, len(args)-fn.hasCtx)
+		for i, arg := range args[fn.hasCtx:] {
+			enc, found := fn.client.paramEncoders[arg.Type()]
+			if found {
+				// custom param encoder
+				var err error
+				arg, err = enc(arg)
+				if err != nil {
+					return fn.processError(fmt.Errorf("sendRequest failed: %w", err))
+				}
+			}
+
+			params[i] = param{
+				v: arg,
 			}
 		}
-
-		params[i] = param{
-			v: arg,
+		var err error
+		serializedParams, err = json.Marshal(params)
+		if err != nil {
+			return fn.processError(fmt.Errorf("marshaling params failed: %w", err))
 		}
 	}
 
@@ -545,7 +565,7 @@ func (fn *rpcFunc) handleRpcCall(args []reflect.Value) (results []reflect.Value)
 		Jsonrpc: "2.0",
 		ID:      id,
 		Method:  fn.name,
-		Params:  params,
+		Params:  serializedParams,
 	}
 
 	if span != nil {
@@ -631,10 +651,18 @@ func (c *client) makeRpcFunc(f reflect.StructField) (reflect.Value, error) {
 		return reflect.Value{}, xerrors.New("notify methods cannot return values")
 	}
 
+	fun.returnValueIsChannel = fun.valOut != -1 && ftyp.Out(fun.valOut).Kind() == reflect.Chan
+
 	if ftyp.NumIn() > 0 && ftyp.In(0) == contextType {
 		fun.hasCtx = 1
 	}
-	fun.returnValueIsChannel = fun.valOut != -1 && ftyp.Out(fun.valOut).Kind() == reflect.Chan
+	// note: hasCtx is also the number of the first non-context argument
+	if ftyp.NumIn() > fun.hasCtx && ftyp.In(fun.hasCtx) == rtRawParams {
+		if ftyp.NumIn() > fun.hasCtx+1 {
+			return reflect.Value{}, xerrors.New("raw params can't be mixed with other arguments")
+		}
+		fun.hasRawParams = true
+	}
 
 	return reflect.MakeFunc(ftyp, fun.handleRpcCall), nil
 }
