@@ -229,6 +229,7 @@ func websocketClient(ctx context.Context, addr string, namespace string, outs []
 	var hnd reqestHandler
 	if len(config.reverseHandlers) > 0 {
 		h := makeHandler(defaultServerConfig())
+		h.aliasedMethods = config.aliasedHandlerMethods
 		for _, reverseHandler := range config.reverseHandlers {
 			h.register(reverseHandler.ns, reverseHandler.hnd)
 		}
@@ -534,7 +535,7 @@ func (fn *rpcFunc) handleRpcCall(args []reflect.Value) (results []reflect.Value)
 	req := request{
 		Jsonrpc: "2.0",
 		ID:      id,
-		Method:  fn.client.namespace + "." + fn.name,
+		Method:  fn.name,
 		Params:  params,
 	}
 
@@ -590,17 +591,27 @@ func (fn *rpcFunc) handleRpcCall(args []reflect.Value) (results []reflect.Value)
 	return fn.processResponse(resp, retVal())
 }
 
+const (
+	ProxyTagRetry     = "retry"
+	ProxyTagRPCMethod = "rpc_method"
+)
+
 func (c *client) makeRpcFunc(f reflect.StructField) (reflect.Value, error) {
 	ftyp := f.Type
 	if ftyp.Kind() != reflect.Func {
 		return reflect.Value{}, xerrors.New("handler field not a func")
 	}
 
+	name := c.namespace + "." + f.Name
+	if tag, ok := f.Tag.Lookup(ProxyTagRPCMethod); ok {
+		name = tag
+	}
+
 	fun := &rpcFunc{
 		client: c,
 		ftyp:   ftyp,
-		name:   f.Name,
-		retry:  f.Tag.Get("retry") == "true",
+		name:   name,
+		retry:  f.Tag.Get(ProxyTagRetry) == "true",
 	}
 	fun.valOut, fun.errOut, fun.nout = processFuncOut(ftyp)
 

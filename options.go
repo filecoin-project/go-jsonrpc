@@ -23,7 +23,8 @@ type Config struct {
 	paramEncoders map[reflect.Type]ParamEncoder
 	errors        *Errors
 
-	reverseHandlers []clientHandler
+	reverseHandlers       []clientHandler
+	aliasedHandlerMethods map[string]string
 
 	httpClient *http.Client
 
@@ -39,6 +40,8 @@ func defaultConfig() Config {
 		},
 		pingInterval: 5 * time.Second,
 		timeout:      30 * time.Second,
+
+		aliasedHandlerMethods: map[string]string{},
 
 		paramEncoders: map[reflect.Type]ParamEncoder{},
 
@@ -91,6 +94,14 @@ func WithErrors(es Errors) func(c *Config) {
 func WithClientHandler(ns string, hnd interface{}) func(c *Config) {
 	return func(c *Config) {
 		c.reverseHandlers = append(c.reverseHandlers, clientHandler{ns, hnd})
+	}
+}
+
+// WithClientHandlerAlias creates an alias for a client HANDLER method - for handlers created
+// with WithClientHandler
+func WithClientHandlerAlias(alias, original string) func(c *Config) {
+	return func(c *Config) {
+		c.aliasedHandlerMethods[alias] = original
 	}
 }
 

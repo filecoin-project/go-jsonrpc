@@ -1142,10 +1142,39 @@ func TestIDHandling(t *testing.T) {
 	}
 }
 
+func TestAliasedCall(t *testing.T) {
+	// setup server
+
+	rpcServer := NewServer()
+	rpcServer.Register("ServName", &SimpleServerHandler{n: 3})
+
+	// httptest stuff
+	testServ := httptest.NewServer(rpcServer)
+	defer testServ.Close()
+
+	// setup client
+	var client struct {
+		WhateverMethodName func(int) (int, error) `rpc_method:"ServName.AddGet"`
+	}
+	closer, err := NewMergeClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "Server", []interface{}{
+		&client,
+	}, nil)
+	require.NoError(t, err)
+
+	// do the call!
+
+	n, err := client.WhateverMethodName(1)
+	require.NoError(t, err)
+
+	require.Equal(t, 4, n)
+
+	closer()
+}
+
 // 1. make server call on client **
 // 2. make client handle **
-// 3. alias on client
-// 4. alias call on server
+// 3. alias on client **
+// 4. alias call on server **
 // 6. custom/object param type
 // 7. notif mode proxy tag
 
@@ -1199,6 +1228,59 @@ func TestReverseCall(t *testing.T) {
 	closer, err := NewMergeClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "Server", []interface{}{
 		&client,
 	}, nil, WithClientHandler("Client", &RevCallTestClientHandler{}))
+	require.NoError(t, err)
+
+	// do the call!
+
+	e := client.Call()
+	require.NoError(t, e)
+
+	closer()
+}
+
+type RevCallTestServerHandlerAliased struct {
+}
+
+func (h *RevCallTestServerHandlerAliased) Call(ctx context.Context) error {
+	revClient, ok := ExtractReverseClient[RevCallTestClientProxyAliased](ctx)
+	if !ok {
+		return fmt.Errorf("no reverse client")
+	}
+
+	r, err := revClient.CallOnClient(8) // multiply by 2 on client
+	if err != nil {
+		return xerrors.Errorf("call on client: %w", err)
+	}
+
+	if r != 16 {
+		return fmt.Errorf("unexpected result: %d", r)
+	}
+
+	return nil
+}
+
+type RevCallTestClientProxyAliased struct {
+	CallOnClient func(int) (int, error) `rpc_method:"rpc_thing"`
+}
+
+func TestReverseCallAliased(t *testing.T) {
+	// setup server
+
+	rpcServer := NewServer(WithReverseClient[RevCallTestClientProxyAliased]("Client"))
+	rpcServer.Register("Server", &RevCallTestServerHandlerAliased{})
+
+	// httptest stuff
+	testServ := httptest.NewServer(rpcServer)
+	defer testServ.Close()
+
+	// setup client
+
+	var client struct {
+		Call func() error
+	}
+	closer, err := NewMergeClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "Server", []interface{}{
+		&client,
+	}, nil, WithClientHandler("Client", &RevCallTestClientHandler{}), WithClientHandlerAlias("rpc_thing", "Client.CallOnClient"))
 	require.NoError(t, err)
 
 	// do the call!
