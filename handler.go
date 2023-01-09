@@ -281,7 +281,7 @@ func (s *handler) createError(err error) *respError {
 
 	out := &respError{
 		Code:    code,
-		Message: err.(error).Error(),
+		Message: err.Error(),
 	}
 
 	if m, ok := err.(marshalable); ok {
@@ -434,7 +434,7 @@ func (s *handler) handle(ctx context.Context, req request, w func(func(io.Writer
 			stats.Record(ctx, metrics.RPCResponseError.M(1))
 			resp.Error = &respError{
 				Code:    1,
-				Message: err.(error).Error(),
+				Message: err.Error(),
 			}
 		} else {
 			resp.Result = res

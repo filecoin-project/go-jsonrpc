@@ -22,7 +22,7 @@ type RPCServer struct {
 	*handler
 	reverseClientBuilder func(context.Context, *wsConn) (context.Context, error)
 
-	pingInterval   time.Duration
+	pingInterval time.Duration
 }
 
 // NewServer creates new RPCServer instance
