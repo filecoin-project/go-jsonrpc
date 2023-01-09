@@ -655,7 +655,7 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 			action = fmt.Sprintf("send-request(%s,%v)", req.req.Method, req.req.ID)
 
 			c.writeLk.Lock()
-			if req.req.ID != nil {
+			if req.req.ID != nil { // non-notification
 				if c.incomingErr != nil { // No conn?, immediate fail
 					req.ready <- clientResponse{
 						Jsonrpc: "2.0",
@@ -671,9 +671,23 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 				c.inflight[req.req.ID] = req
 			}
 			c.writeLk.Unlock()
-			if err := c.sendRequest(req.req); err != nil {
-				log.Errorf("sendReqest failed (Handle me): %s", err)
+			serr := c.sendRequest(req.req)
+			if serr != nil {
+				log.Errorf("sendReqest failed (Handle me): %s", serr)
 			}
+			if req.req.ID == nil { // notification, return immediately
+				resp := clientResponse{
+					Jsonrpc: "2.0",
+				}
+				if serr != nil {
+					resp.Error = &respError{
+						Code:    eTempWSError,
+						Message: fmt.Sprintf("sendRequest: %s", serr),
+					}
+				}
+				req.ready <- resp
+			}
+
 		case <-c.pongs:
 			action = "pong"
 

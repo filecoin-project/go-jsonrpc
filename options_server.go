@@ -72,7 +72,7 @@ func WithReverseClient[RP any](namespace string) ServerOption {
 			stop := make(chan struct{}) // todo better stop?
 			cl.exiting = stop
 
-			requests := cl.setup()
+			requests := cl.setupRequestChan()
 			conn.requests = requests
 
 			calls := new(RP)

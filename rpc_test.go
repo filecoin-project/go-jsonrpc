@@ -1171,6 +1171,55 @@ func TestAliasedCall(t *testing.T) {
 	closer()
 }
 
+type NotifHandler struct {
+	notified chan struct{}
+}
+
+func (h *NotifHandler) Notif() {
+	close(h.notified)
+}
+
+func TestNotif(t *testing.T) {
+	tc := func(proto string) func(t *testing.T) {
+		return func(t *testing.T) {
+			// setup server
+
+			nh := &NotifHandler{
+				notified: make(chan struct{}),
+			}
+
+			rpcServer := NewServer()
+			rpcServer.Register("Notif", nh)
+
+			// httptest stuff
+			testServ := httptest.NewServer(rpcServer)
+			defer testServ.Close()
+
+			// setup client
+			var client struct {
+				Notif func() error `notify:"true"`
+			}
+			closer, err := NewMergeClient(context.Background(), proto+"://"+testServ.Listener.Addr().String(), "Notif", []interface{}{
+				&client,
+			}, nil)
+			require.NoError(t, err)
+
+			// do the call!
+
+			// this will block if it's not sent as a notification
+			err = client.Notif()
+			require.NoError(t, err)
+
+			<-nh.notified
+
+			closer()
+		}
+	}
+
+	t.Run("ws", tc("ws"))
+	t.Run("http", tc("http"))
+}
+
 // 1. make server call on client **
 // 2. make client handle **
 // 3. alias on client **
