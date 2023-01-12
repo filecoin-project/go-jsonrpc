@@ -1,6 +1,7 @@
 package jsonrpc
 
 import (
+	"net/http"
 	"reflect"
 	"time"
 
@@ -17,6 +18,8 @@ type Config struct {
 	paramEncoders map[reflect.Type]ParamEncoder
 	errors        *Errors
 
+	httpClient *http.Client
+
 	noReconnect      bool
 	proxyConnFactory func(func() (*websocket.Conn, error)) func() (*websocket.Conn, error) // for testing
 }
@@ -31,6 +34,8 @@ func defaultConfig() Config {
 		timeout:      30 * time.Second,
 
 		paramEncoders: map[reflect.Type]ParamEncoder{},
+
+		httpClient: _defaultHTTPClient,
 	}
 }
 
@@ -73,5 +78,11 @@ func WithParamEncoder(t interface{}, encoder ParamEncoder) func(c *Config) {
 func WithErrors(es Errors) func(c *Config) {
 	return func(c *Config) {
 		c.errors = &es
+	}
+}
+
+func WithHTTPClient(h *http.Client) func(c *Config) {
+	return func(c *Config) {
+		c.httpClient = h
 	}
 }
