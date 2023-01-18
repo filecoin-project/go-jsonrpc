@@ -160,7 +160,7 @@ func httpClient(ctx context.Context, addr string, namespace string, outs []inter
 
 		hreq.Header.Set("Content-Type", "application/json")
 
-		httpResp, err := _defaultHTTPClient.Do(hreq)
+		httpResp, err := config.httpClient.Do(hreq)
 		if err != nil {
 			return clientResponse{}, &RPCConnectionError{err}
 		}
