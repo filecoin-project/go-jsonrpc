@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"os"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -19,6 +20,8 @@ import (
 const wsCancel = "xrpc.cancel"
 const chValue = "xrpc.ch.val"
 const chClose = "xrpc.ch.close"
+
+var debugTrace = os.Getenv("JSONRPC_ENABLE_DEBUG_TRACE") == "1"
 
 type frame struct {
 	// common
@@ -131,6 +134,10 @@ func (c *wsConn) nextWriter(cb func(io.Writer)) {
 func (c *wsConn) sendRequest(req request) error {
 	c.writeLk.Lock()
 	defer c.writeLk.Unlock()
+
+	if debugTrace {
+		log.Debugw("sendRequest", "req", req.Method, "id", req.ID)
+	}
 
 	if err := c.conn.WriteJSON(req); err != nil {
 		return err
@@ -622,7 +629,7 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 				var frame frame
 				if err = json.NewDecoder(r).Decode(&frame); err == nil {
 					if frame.ID, err = normalizeID(frame.ID); err == nil {
-						action = fmt.Sprintf("incoming(%s,%s)", frame.Method, frame.ID)
+						action = fmt.Sprintf("incoming(%s,%v)", frame.Method, frame.ID)
 
 						c.handleFrame(ctx, frame)
 						go c.nextMessage()
@@ -641,7 +648,7 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 				return // failed to reconnect
 			}
 		case req := <-c.requests:
-			action = fmt.Sprintf("send-request(%s)", req.req.Method)
+			action = fmt.Sprintf("send-request(%s,%v)", req.req.Method, req.req.ID)
 
 			c.writeLk.Lock()
 			if req.req.ID != nil {
@@ -700,6 +707,9 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 
 		if c.pingInterval > 0 && time.Since(start) > c.pingInterval*2 {
 			log.Warnw("websocket long time no response", "lastAction", action, "time", time.Since(start))
+		}
+		if debugTrace {
+			log.Debugw("websocket action", "lastAction", action, "time", time.Since(start))
 		}
 	}
 }
