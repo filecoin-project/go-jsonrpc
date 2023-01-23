@@ -275,10 +275,11 @@ func (c *wsConn) handleChanOut(ch reflect.Value, req interface{}) error {
 
 // handleCtxAsync handles context lifetimes for client
 // TODO: this should be aware of events going through chanHandlers, and quit
-//  when the related channel is closed.
-//  This should also probably be a single goroutine,
-//  Note that not doing this should be fine for now as long as we are using
-//  contexts correctly (cancelling when async functions are no longer is use)
+//
+//	when the related channel is closed.
+//	This should also probably be a single goroutine,
+//	Note that not doing this should be fine for now as long as we are using
+//	contexts correctly (cancelling when async functions are no longer is use)
 func (c *wsConn) handleCtxAsync(actx context.Context, id interface{}) {
 	<-actx.Done()
 
@@ -480,6 +481,14 @@ func (c *wsConn) setupPings() func() {
 	}
 
 	c.conn.SetPongHandler(func(appData string) error {
+		select {
+		case c.pongs <- struct{}{}:
+		default:
+		}
+		return nil
+	})
+	c.conn.SetPingHandler(func(appData string) error {
+		// treat pings as pongs - this lets us register server activity even if it's too busg to respond to our pings
 		select {
 		case c.pongs <- struct{}{}:
 		default:
