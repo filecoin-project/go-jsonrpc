@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"reflect"
@@ -92,11 +93,7 @@ type wsConn struct {
 
 // nextMessage wait for one message and puts it to the incoming channel
 func (c *wsConn) nextMessage() {
-	if c.timeout > 0 {
-		if err := c.conn.SetReadDeadline(time.Now().Add(c.timeout)); err != nil {
-			log.Error("setting read deadline", err)
-		}
-	}
+	c.resetReadDeadline()
 	msgType, r, err := c.conn.NextReader()
 	if err != nil {
 		c.incomingErr = err
@@ -609,8 +606,13 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 			timeoutCh = timeoutTimer.C
 		}
 
+		start := time.Now()
+		action := ""
+
 		select {
 		case r, ok := <-c.incoming:
+			action = "incoming"
+
 			err := c.incomingErr
 
 			if ok {
@@ -620,9 +622,11 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 				var frame frame
 				if err = json.NewDecoder(r).Decode(&frame); err == nil {
 					if frame.ID, err = normalizeID(frame.ID); err == nil {
+						action = fmt.Sprintf("incoming(%s,%s)", frame.Method, frame.ID)
+
 						c.handleFrame(ctx, frame)
 						go c.nextMessage()
-						continue
+						break
 					}
 				}
 			}
@@ -637,6 +641,8 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 				return // failed to reconnect
 			}
 		case req := <-c.requests:
+			action = fmt.Sprintf("send-request(%s)", req.req.Method)
+
 			c.writeLk.Lock()
 			if req.req.ID != nil {
 				if c.incomingErr != nil { // No conn?, immediate fail
@@ -658,11 +664,9 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 				log.Errorf("sendReqest failed (Handle me): %s", err)
 			}
 		case <-c.pongs:
-			if c.timeout > 0 {
-				if err := c.conn.SetReadDeadline(time.Now().Add(c.timeout)); err != nil {
-					log.Error("setting read deadline", err)
-				}
-			}
+			action = "pong"
+
+			c.resetReadDeadline()
 		case <-timeoutCh:
 			if c.pingInterval == 0 {
 				// pings not running, this is perfectly normal
@@ -674,7 +678,7 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 				log.Warnw("timed-out websocket close error", "error", err)
 			}
 			c.writeLk.Unlock()
-			log.Errorw("Connection timeout", "remote", c.conn.RemoteAddr())
+			log.Errorw("Connection timeout", "remote", c.conn.RemoteAddr(), "lastAction", action)
 			// The server side does not perform the reconnect operation, so need to exit
 			if c.connFactory == nil {
 				return
@@ -692,6 +696,18 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 			}
 			c.writeLk.Unlock()
 			return
+		}
+
+		if c.pingInterval > 0 && time.Since(start) > c.pingInterval*2 {
+			log.Warnw("websocket long time no response", "lastAction", action, "time", time.Since(start))
+		}
+	}
+}
+
+func (c *wsConn) resetReadDeadline() {
+	if c.timeout > 0 {
+		if err := c.conn.SetReadDeadline(time.Now().Add(c.timeout)); err != nil {
+			log.Error("setting read deadline", err)
 		}
 	}
 }
