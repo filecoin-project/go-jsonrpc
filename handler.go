@@ -198,6 +198,8 @@ func (s *RPCServer) getSpan(ctx context.Context, req request) (context.Context, 
 	if req.Meta == nil {
 		return ctx, nil
 	}
+
+	var span *trace.Span
 	if eSC, ok := req.Meta["SpanContext"]; ok {
 		bSC := make([]byte, base64.StdEncoding.DecodedLen(len(eSC)))
 		_, err := base64.StdEncoding.Decode(bSC, []byte(eSC))
@@ -210,11 +212,13 @@ func (s *RPCServer) getSpan(ctx context.Context, req request) (context.Context, 
 			log.Errorf("SpanContext: could not create span", "data", bSC)
 			return ctx, nil
 		}
-		ctx, span := trace.StartSpanWithRemoteParent(ctx, "api.handle", sc)
-		span.AddAttributes(trace.StringAttribute("method", req.Method))
-		return ctx, span
+		ctx, span = trace.StartSpanWithRemoteParent(ctx, "api.handle", sc)
+	} else {
+		ctx, span = trace.StartSpan(ctx, "api.handle")
 	}
-	return ctx, nil
+
+	span.AddAttributes(trace.StringAttribute("method", req.Method))
+	return ctx, span
 }
 
 func (s *RPCServer) createError(err error) *respError {
