@@ -67,8 +67,8 @@ func (s *RPCServer) handleWS(ctx context.Context, w http.ResponseWriter, r *http
 
 	c, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Error(err)
-		w.WriteHeader(500)
+		log.Errorw("upgrading connection", "error", err)
+		// note that upgrader.Upgrade will set http error if there is an error
 		return
 	}
 
@@ -80,7 +80,7 @@ func (s *RPCServer) handleWS(ctx context.Context, w http.ResponseWriter, r *http
 	}).handleWsConn(ctx)
 
 	if err := c.Close(); err != nil {
-		log.Error(err)
+		log.Errorw("closing websocket connection", "error", err)
 		return
 	}
 }
