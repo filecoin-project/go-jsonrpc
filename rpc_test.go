@@ -27,6 +27,8 @@ func init() {
 	if err := logging.SetLogLevel("rpc", "DEBUG"); err != nil {
 		panic(err)
 	}
+
+	debugTrace = true
 }
 
 type SimpleServerHandler struct {
