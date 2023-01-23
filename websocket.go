@@ -492,7 +492,7 @@ func (c *wsConn) setupPings() func() {
 		return nil
 	})
 	c.conn.SetPingHandler(func(appData string) error {
-		// treat pings as pongs - this lets us register server activity even if it's too busg to respond to our pings
+		// treat pings as pongs - this lets us register server activity even if it's too busy to respond to our pings
 		select {
 		case c.pongs <- struct{}{}:
 		default:
