@@ -20,14 +20,30 @@ import (
 	"github.com/filecoin-project/go-jsonrpc/metrics"
 )
 
-type rpcHandler struct {
+type RawParams json.RawMessage
+
+var rtRawParams = reflect.TypeOf(RawParams{})
+
+// todo is there a better way to tell 'struct with any number of fields'?
+func DecodeParams[T any](p RawParams) (T, error) {
+	var t T
+	err := json.Unmarshal(p, &t)
+
+	// todo also handle list-encoding automagically (json.Unmarshal doesn't do that, does it?)
+
+	return t, err
+}
+
+// methodHandler is a handler for a single method
+type methodHandler struct {
 	paramReceivers []reflect.Type
 	nParams        int
 
 	receiver    reflect.Value
 	handlerFunc reflect.Value
 
-	hasCtx int
+	hasCtx       int
+	hasRawParams bool
 
 	errOut int
 	valOut int
@@ -39,7 +55,7 @@ type request struct {
 	Jsonrpc string            `json:"jsonrpc"`
 	ID      interface{}       `json:"id,omitempty"`
 	Method  string            `json:"method"`
-	Params  []param           `json:"params"`
+	Params  json.RawMessage   `json:"params"`
 	Meta    map[string]string `json:"meta,omitempty"`
 }
 
@@ -94,9 +110,34 @@ type response struct {
 	Error   *respError  `json:"error,omitempty"`
 }
 
+type handler struct {
+	methods map[string]methodHandler
+	errors  *Errors
+
+	maxRequestSize int64
+
+	// aliasedMethods contains a map of alias:original method names.
+	// These are used as fallbacks if a method is not found by the given method name.
+	aliasedMethods map[string]string
+
+	paramDecoders map[reflect.Type]ParamDecoder
+}
+
+func makeHandler(sc ServerConfig) *handler {
+	return &handler{
+		methods: make(map[string]methodHandler),
+		errors:  sc.errors,
+
+		aliasedMethods: map[string]string{},
+		paramDecoders:  sc.paramDecoders,
+
+		maxRequestSize: sc.maxRequestSize,
+	}
+}
+
 // Register
 
-func (s *RPCServer) register(namespace string, r interface{}) {
+func (s *handler) register(namespace string, r interface{}) {
 	val := reflect.ValueOf(r)
 	// TODO: expect ptr
 
@@ -109,22 +150,30 @@ func (s *RPCServer) register(namespace string, r interface{}) {
 			hasCtx = 1
 		}
 
+		hasRawParams := false
 		ins := funcType.NumIn() - 1 - hasCtx
 		recvs := make([]reflect.Type, ins)
 		for i := 0; i < ins; i++ {
+			if hasRawParams && i > 0 {
+				panic("raw params must be the last parameter")
+			}
+			if funcType.In(i+1+hasCtx) == rtRawParams {
+				hasRawParams = true
+			}
 			recvs[i] = method.Type.In(i + 1 + hasCtx)
 		}
 
 		valOut, errOut, _ := processFuncOut(funcType)
 
-		s.methods[namespace+"."+method.Name] = rpcHandler{
+		s.methods[namespace+"."+method.Name] = methodHandler{
 			paramReceivers: recvs,
 			nParams:        ins,
 
 			handlerFunc: method.Func,
 			receiver:    val,
 
-			hasCtx: hasCtx,
+			hasCtx:       hasCtx,
+			hasRawParams: hasRawParams,
 
 			errOut: errOut,
 			valOut: valOut,
@@ -137,7 +186,7 @@ func (s *RPCServer) register(namespace string, r interface{}) {
 type rpcErrFunc func(w func(func(io.Writer)), req *request, code ErrorCode, err error)
 type chanOut func(reflect.Value, interface{}) error
 
-func (s *RPCServer) handleReader(ctx context.Context, r io.Reader, w io.Writer, rpcError rpcErrFunc) {
+func (s *handler) handleReader(ctx context.Context, r io.Reader, w io.Writer, rpcError rpcErrFunc) {
 	wf := func(cb func(io.Writer)) {
 		cb(w)
 	}
@@ -194,7 +243,7 @@ func doCall(methodName string, f reflect.Value, params []reflect.Value) (out []r
 	return out, nil
 }
 
-func (s *RPCServer) getSpan(ctx context.Context, req request) (context.Context, *trace.Span) {
+func (s *handler) getSpan(ctx context.Context, req request) (context.Context, *trace.Span) {
 	if req.Meta == nil {
 		return ctx, nil
 	}
@@ -221,7 +270,7 @@ func (s *RPCServer) getSpan(ctx context.Context, req request) (context.Context, 
 	return ctx, span
 }
 
-func (s *RPCServer) createError(err error) *respError {
+func (s *handler) createError(err error) *respError {
 	var code ErrorCode = 1
 	if s.errors != nil {
 		c, ok := s.errors.byType[reflect.TypeOf(err)]
@@ -232,7 +281,7 @@ func (s *RPCServer) createError(err error) *respError {
 
 	out := &respError{
 		Code:    code,
-		Message: err.(error).Error(),
+		Message: err.Error(),
 	}
 
 	if m, ok := err.(marshalable); ok {
@@ -245,7 +294,7 @@ func (s *RPCServer) createError(err error) *respError {
 	return out
 }
 
-func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writer)), rpcError rpcErrFunc, done func(keepCtx bool), chOut chanOut) {
+func (s *handler) handle(ctx context.Context, req request, w func(func(io.Writer)), rpcError rpcErrFunc, done func(keepCtx bool), chOut chanOut) {
 	// Not sure if we need to sanitize the incoming req.Method or not.
 	ctx, span := s.getSpan(ctx, req)
 	ctx, _ = tag.New(ctx, tag.Insert(metrics.RPCMethod, req.Method))
@@ -265,13 +314,6 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 		}
 	}
 
-	if len(req.Params) != handler.nParams {
-		rpcError(w, &req, rpcInvalidParams, fmt.Errorf("wrong param count (method '%s'): %d != %d", req.Method, len(req.Params), handler.nParams))
-		stats.Record(ctx, metrics.RPCRequestError.M(1))
-		done(false)
-		return
-	}
-
 	outCh := handler.valOut != -1 && handler.handlerFunc.Type().Out(handler.valOut).Kind() == reflect.Chan
 	defer done(outCh)
 
@@ -287,30 +329,54 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 		callParams[1] = reflect.ValueOf(ctx)
 	}
 
-	for i := 0; i < handler.nParams; i++ {
-		var rp reflect.Value
+	if handler.hasRawParams {
+		// When hasRawParams is true, there is only one parameter and it is a
+		// json.RawMessage.
 
-		typ := handler.paramReceivers[i]
-		dec, found := s.paramDecoders[typ]
-		if !found {
-			rp = reflect.New(typ)
-			if err := json.NewDecoder(bytes.NewReader(req.Params[i].data)).Decode(rp.Interface()); err != nil {
-				rpcError(w, &req, rpcParseError, xerrors.Errorf("unmarshaling params for '%s' (param: %T): %w", req.Method, rp.Interface(), err))
-				stats.Record(ctx, metrics.RPCRequestError.M(1))
-				return
-			}
-			rp = rp.Elem()
-		} else {
-			var err error
-			rp, err = dec(ctx, req.Params[i].data)
-			if err != nil {
-				rpcError(w, &req, rpcParseError, xerrors.Errorf("decoding params for '%s' (param: %d; custom decoder): %w", req.Method, i, err))
-				stats.Record(ctx, metrics.RPCRequestError.M(1))
-				return
-			}
+		callParams[1+handler.hasCtx] = reflect.ValueOf(RawParams(req.Params))
+	} else {
+		// "normal" param list; no good way to do named params in Golang
+
+		var ps []param
+		err := json.Unmarshal(req.Params, &ps)
+		if err != nil {
+			rpcError(w, &req, rpcParseError, xerrors.Errorf("unmarshaling param array: %w", err))
+			stats.Record(ctx, metrics.RPCRequestError.M(1))
+			return
 		}
 
-		callParams[i+1+handler.hasCtx] = reflect.ValueOf(rp.Interface())
+		if len(ps) != handler.nParams {
+			rpcError(w, &req, rpcInvalidParams, fmt.Errorf("wrong param count (method '%s'): %d != %d", req.Method, len(ps), handler.nParams))
+			stats.Record(ctx, metrics.RPCRequestError.M(1))
+			done(false)
+			return
+		}
+
+		for i := 0; i < handler.nParams; i++ {
+			var rp reflect.Value
+
+			typ := handler.paramReceivers[i]
+			dec, found := s.paramDecoders[typ]
+			if !found {
+				rp = reflect.New(typ)
+				if err := json.NewDecoder(bytes.NewReader(ps[i].data)).Decode(rp.Interface()); err != nil {
+					rpcError(w, &req, rpcParseError, xerrors.Errorf("unmarshaling params for '%s' (param: %T): %w", req.Method, rp.Interface(), err))
+					stats.Record(ctx, metrics.RPCRequestError.M(1))
+					return
+				}
+				rp = rp.Elem()
+			} else {
+				var err error
+				rp, err = dec(ctx, ps[i].data)
+				if err != nil {
+					rpcError(w, &req, rpcParseError, xerrors.Errorf("decoding params for '%s' (param: %d; custom decoder): %w", req.Method, i, err))
+					stats.Record(ctx, metrics.RPCRequestError.M(1))
+					return
+				}
+			}
+
+			callParams[i+1+handler.hasCtx] = reflect.ValueOf(rp.Interface())
+		}
 	}
 
 	// /////////////////
@@ -368,7 +434,7 @@ func (s *RPCServer) handle(ctx context.Context, req request, w func(func(io.Writ
 			stats.Record(ctx, metrics.RPCResponseError.M(1))
 			resp.Error = &respError{
 				Code:    1,
-				Message: err.(error).Error(),
+				Message: err.Error(),
 			}
 		} else {
 			resp.Result = res

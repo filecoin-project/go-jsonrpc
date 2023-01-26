@@ -1141,3 +1141,238 @@ func TestIDHandling(t *testing.T) {
 		})
 	}
 }
+
+func TestAliasedCall(t *testing.T) {
+	// setup server
+
+	rpcServer := NewServer()
+	rpcServer.Register("ServName", &SimpleServerHandler{n: 3})
+
+	// httptest stuff
+	testServ := httptest.NewServer(rpcServer)
+	defer testServ.Close()
+
+	// setup client
+	var client struct {
+		WhateverMethodName func(int) (int, error) `rpc_method:"ServName.AddGet"`
+	}
+	closer, err := NewMergeClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "Server", []interface{}{
+		&client,
+	}, nil)
+	require.NoError(t, err)
+
+	// do the call!
+
+	n, err := client.WhateverMethodName(1)
+	require.NoError(t, err)
+
+	require.Equal(t, 4, n)
+
+	closer()
+}
+
+type NotifHandler struct {
+	notified chan struct{}
+}
+
+func (h *NotifHandler) Notif() {
+	close(h.notified)
+}
+
+func TestNotif(t *testing.T) {
+	tc := func(proto string) func(t *testing.T) {
+		return func(t *testing.T) {
+			// setup server
+
+			nh := &NotifHandler{
+				notified: make(chan struct{}),
+			}
+
+			rpcServer := NewServer()
+			rpcServer.Register("Notif", nh)
+
+			// httptest stuff
+			testServ := httptest.NewServer(rpcServer)
+			defer testServ.Close()
+
+			// setup client
+			var client struct {
+				Notif func() error `notify:"true"`
+			}
+			closer, err := NewMergeClient(context.Background(), proto+"://"+testServ.Listener.Addr().String(), "Notif", []interface{}{
+				&client,
+			}, nil)
+			require.NoError(t, err)
+
+			// do the call!
+
+			// this will block if it's not sent as a notification
+			err = client.Notif()
+			require.NoError(t, err)
+
+			<-nh.notified
+
+			closer()
+		}
+	}
+
+	t.Run("ws", tc("ws"))
+	t.Run("http", tc("http"))
+}
+
+type RawParamHandler struct {
+}
+
+type CustomParams struct {
+	I int
+}
+
+func (h *RawParamHandler) Call(ctx context.Context, ps RawParams) (int, error) {
+	p, err := DecodeParams[CustomParams](ps)
+	if err != nil {
+		return 0, err
+	}
+	return p.I + 1, nil
+}
+
+func TestCallWithRawParams(t *testing.T) {
+	// setup server
+
+	rpcServer := NewServer()
+	rpcServer.Register("Raw", &RawParamHandler{})
+
+	// httptest stuff
+	testServ := httptest.NewServer(rpcServer)
+	defer testServ.Close()
+
+	// setup client
+	var client struct {
+		Call func(ctx context.Context, ps RawParams) (int, error)
+	}
+	closer, err := NewMergeClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "Raw", []interface{}{
+		&client,
+	}, nil)
+	require.NoError(t, err)
+
+	// do the call!
+
+	// this will block if it's not sent as a notification
+	n, err := client.Call(context.Background(), []byte(`{"I": 1}`))
+	require.NoError(t, err)
+	require.Equal(t, 2, n)
+
+	closer()
+}
+
+type RevCallTestServerHandler struct {
+}
+
+func (h *RevCallTestServerHandler) Call(ctx context.Context) error {
+	revClient, ok := ExtractReverseClient[RevCallTestClientProxy](ctx)
+	if !ok {
+		return fmt.Errorf("no reverse client")
+	}
+
+	r, err := revClient.CallOnClient(7) // multiply by 2 on client
+	if err != nil {
+		return xerrors.Errorf("call on client: %w", err)
+	}
+
+	if r != 14 {
+		return fmt.Errorf("unexpected result: %d", r)
+	}
+
+	return nil
+}
+
+type RevCallTestClientProxy struct {
+	CallOnClient func(int) (int, error)
+}
+
+type RevCallTestClientHandler struct {
+}
+
+func (h *RevCallTestClientHandler) CallOnClient(a int) (int, error) {
+	return a * 2, nil
+}
+
+func TestReverseCall(t *testing.T) {
+	// setup server
+
+	rpcServer := NewServer(WithReverseClient[RevCallTestClientProxy]("Client"))
+	rpcServer.Register("Server", &RevCallTestServerHandler{})
+
+	// httptest stuff
+	testServ := httptest.NewServer(rpcServer)
+	defer testServ.Close()
+
+	// setup client
+
+	var client struct {
+		Call func() error
+	}
+	closer, err := NewMergeClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "Server", []interface{}{
+		&client,
+	}, nil, WithClientHandler("Client", &RevCallTestClientHandler{}))
+	require.NoError(t, err)
+
+	// do the call!
+
+	e := client.Call()
+	require.NoError(t, e)
+
+	closer()
+}
+
+type RevCallTestServerHandlerAliased struct {
+}
+
+func (h *RevCallTestServerHandlerAliased) Call(ctx context.Context) error {
+	revClient, ok := ExtractReverseClient[RevCallTestClientProxyAliased](ctx)
+	if !ok {
+		return fmt.Errorf("no reverse client")
+	}
+
+	r, err := revClient.CallOnClient(8) // multiply by 2 on client
+	if err != nil {
+		return xerrors.Errorf("call on client: %w", err)
+	}
+
+	if r != 16 {
+		return fmt.Errorf("unexpected result: %d", r)
+	}
+
+	return nil
+}
+
+type RevCallTestClientProxyAliased struct {
+	CallOnClient func(int) (int, error) `rpc_method:"rpc_thing"`
+}
+
+func TestReverseCallAliased(t *testing.T) {
+	// setup server
+
+	rpcServer := NewServer(WithReverseClient[RevCallTestClientProxyAliased]("Client"))
+	rpcServer.Register("Server", &RevCallTestServerHandlerAliased{})
+
+	// httptest stuff
+	testServ := httptest.NewServer(rpcServer)
+	defer testServ.Close()
+
+	// setup client
+
+	var client struct {
+		Call func() error
+	}
+	closer, err := NewMergeClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "Server", []interface{}{
+		&client,
+	}, nil, WithClientHandler("Client", &RevCallTestClientHandler{}), WithClientHandlerAlias("rpc_thing", "Client.CallOnClient"))
+	require.NoError(t, err)
+
+	// do the call!
+
+	e := client.Call()
+	require.NoError(t, e)
+
+	closer()
+}

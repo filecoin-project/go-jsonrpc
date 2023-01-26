@@ -30,8 +30,8 @@ type frame struct {
 	Meta    map[string]string `json:"meta,omitempty"`
 
 	// request
-	Method string  `json:"method,omitempty"`
-	Params []param `json:"params,omitempty"`
+	Method string          `json:"method,omitempty"`
+	Params json.RawMessage `json:"params,omitempty"`
 
 	// response
 	Result json.RawMessage `json:"result,omitempty"`
@@ -45,6 +45,10 @@ type outChanReg struct {
 	ch   reflect.Value
 }
 
+type reqestHandler interface {
+	handle(ctx context.Context, req request, w func(func(io.Writer)), rpcError rpcErrFunc, done func(keepCtx bool), chOut chanOut)
+}
+
 type wsConn struct {
 	// outside params
 	conn             *websocket.Conn
@@ -52,7 +56,7 @@ type wsConn struct {
 	reconnectBackoff backoff
 	pingInterval     time.Duration
 	timeout          time.Duration
-	handler          *RPCServer
+	handler          reqestHandler
 	requests         <-chan clientRequest
 	pongs            chan struct{}
 	stopPings        func()
@@ -229,11 +233,17 @@ func (c *wsConn) handleOutChans() {
 			cases = cases[:n]
 			caseToID = caseToID[:n-internal]
 
+			rp, err := json.Marshal([]param{{v: reflect.ValueOf(id)}})
+			if err != nil {
+				log.Error(err)
+				continue
+			}
+
 			if err := c.sendRequest(request{
 				Jsonrpc: "2.0",
 				ID:      nil, // notification
 				Method:  chClose,
-				Params:  []param{{v: reflect.ValueOf(id)}},
+				Params:  rp,
 			}); err != nil {
 				log.Warnf("closed out channel sendRequest failed: %s", err)
 			}
@@ -241,11 +251,17 @@ func (c *wsConn) handleOutChans() {
 		}
 
 		// forward message
+		rp, err := json.Marshal([]param{{v: reflect.ValueOf(caseToID[chosen-internal])}, {v: val}})
+		if err != nil {
+			log.Errorw("marshaling params for sendRequest failed", "err", err)
+			continue
+		}
+
 		if err := c.sendRequest(request{
 			Jsonrpc: "2.0",
 			ID:      nil, // notification
 			Method:  chValue,
-			Params:  []param{{v: reflect.ValueOf(caseToID[chosen-internal])}, {v: val}},
+			Params:  rp,
 		}); err != nil {
 			log.Warnf("sendRequest failed: %s", err)
 			return
@@ -287,10 +303,16 @@ func (c *wsConn) handleChanOut(ch reflect.Value, req interface{}) error {
 func (c *wsConn) handleCtxAsync(actx context.Context, id interface{}) {
 	<-actx.Done()
 
+	rp, err := json.Marshal([]param{{v: reflect.ValueOf(id)}})
+	if err != nil {
+		log.Errorw("marshaling params for sendRequest failed", "err", err)
+		return
+	}
+
 	if err := c.sendRequest(request{
 		Jsonrpc: "2.0",
 		Method:  wsCancel,
-		Params:  []param{{v: reflect.ValueOf(id)}},
+		Params:  rp,
 	}); err != nil {
 		log.Warnw("failed to send request", "method", wsCancel, "id", id, "error", err.Error())
 	}
@@ -302,8 +324,14 @@ func (c *wsConn) cancelCtx(req frame) {
 		log.Warnf("%s call with ID set, won't respond", wsCancel)
 	}
 
+	var params []param
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		log.Error("failed to unmarshal channel id in xrpc.ch.val: %s", err)
+		return
+	}
+
 	var id interface{}
-	if err := json.Unmarshal(req.Params[0].data, &id); err != nil {
+	if err := json.Unmarshal(params[0].data, &id); err != nil {
 		log.Error("handle me:", err)
 		return
 	}
@@ -322,8 +350,14 @@ func (c *wsConn) cancelCtx(req frame) {
 //                     //
 
 func (c *wsConn) handleChanMessage(frame frame) {
+	var params []param
+	if err := json.Unmarshal(frame.Params, &params); err != nil {
+		log.Error("failed to unmarshal channel id in xrpc.ch.val: %s", err)
+		return
+	}
+
 	var chid uint64
-	if err := json.Unmarshal(frame.Params[0].data, &chid); err != nil {
+	if err := json.Unmarshal(params[0].data, &chid); err != nil {
 		log.Error("failed to unmarshal channel id in xrpc.ch.val: %s", err)
 		return
 	}
@@ -334,12 +368,18 @@ func (c *wsConn) handleChanMessage(frame frame) {
 		return
 	}
 
-	hnd(frame.Params[1].data, true)
+	hnd(params[1].data, true)
 }
 
 func (c *wsConn) handleChanClose(frame frame) {
+	var params []param
+	if err := json.Unmarshal(frame.Params, &params); err != nil {
+		log.Error("failed to unmarshal channel id in xrpc.ch.val: %s", err)
+		return
+	}
+
 	var chid uint64
-	if err := json.Unmarshal(frame.Params[0].data, &chid); err != nil {
+	if err := json.Unmarshal(params[0].data, &chid); err != nil {
 		log.Error("failed to unmarshal channel id in xrpc.ch.val: %s", err)
 		return
 	}
@@ -386,7 +426,7 @@ func (c *wsConn) handleResponse(frame frame) {
 
 func (c *wsConn) handleCall(ctx context.Context, frame frame) {
 	if c.handler == nil {
-		log.Error("handleCall on client")
+		log.Error("handleCall on client with no reverse handler")
 		return
 	}
 
@@ -651,7 +691,7 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 			action = fmt.Sprintf("send-request(%s,%v)", req.req.Method, req.req.ID)
 
 			c.writeLk.Lock()
-			if req.req.ID != nil {
+			if req.req.ID != nil { // non-notification
 				if c.incomingErr != nil { // No conn?, immediate fail
 					req.ready <- clientResponse{
 						Jsonrpc: "2.0",
@@ -667,9 +707,23 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 				c.inflight[req.req.ID] = req
 			}
 			c.writeLk.Unlock()
-			if err := c.sendRequest(req.req); err != nil {
-				log.Errorf("sendReqest failed (Handle me): %s", err)
+			serr := c.sendRequest(req.req)
+			if serr != nil {
+				log.Errorf("sendReqest failed (Handle me): %s", serr)
 			}
+			if req.req.ID == nil { // notification, return immediately
+				resp := clientResponse{
+					Jsonrpc: "2.0",
+				}
+				if serr != nil {
+					resp.Error = &respError{
+						Code:    eTempWSError,
+						Message: fmt.Sprintf("sendRequest: %s", serr),
+					}
+				}
+				req.ready <- resp
+			}
+
 		case <-c.pongs:
 			action = "pong"
 
