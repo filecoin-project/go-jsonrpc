@@ -131,7 +131,7 @@ func NewMergeClient(ctx context.Context, addr string, namespace string, outs []i
 func httpClient(ctx context.Context, addr string, namespace string, outs []interface{}, requestHeader http.Header, config Config) (ClientCloser, error) {
 	c := client{
 		namespace:     namespace,
-		delimiter:     config.namespacedelimiter,
+		delimiter:     config.namespaceDelimiter,
 		paramEncoders: config.paramEncoders,
 		errors:        config.errors,
 	}
@@ -220,7 +220,7 @@ func websocketClient(ctx context.Context, addr string, namespace string, outs []
 
 	c := client{
 		namespace:     namespace,
-		delimiter:     config.namespacedelimiter,
+		delimiter:     config.namespaceDelimiter,
 		paramEncoders: config.paramEncoders,
 		errors:        config.errors,
 	}
