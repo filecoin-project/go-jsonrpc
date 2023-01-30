@@ -115,10 +115,9 @@ type handler struct {
 	errors  *Errors
 
 	maxRequestSize int64
-
+	delimiter      string
 	// aliasedMethods contains a map of alias:original method names.
 	// These are used as fallbacks if a method is not found by the given method name.
-	delimiter      string
 	aliasedMethods map[string]string
 
 	paramDecoders map[reflect.Type]ParamDecoder
@@ -126,9 +125,9 @@ type handler struct {
 
 func makeHandler(sc ServerConfig) *handler {
 	return &handler{
-		methods: make(map[string]methodHandler),
-		errors:  sc.errors,
-
+		methods:        make(map[string]methodHandler),
+		errors:         sc.errors,
+		delimiter:      sc.namespaceDelimiter,
 		aliasedMethods: map[string]string{},
 		paramDecoders:  sc.paramDecoders,
 

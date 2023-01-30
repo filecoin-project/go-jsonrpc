@@ -14,8 +14,9 @@ type jsonrpcReverseClient struct{ reflect.Type }
 type ParamDecoder func(ctx context.Context, json []byte) (reflect.Value, error)
 
 type ServerConfig struct {
-	maxRequestSize int64
-	pingInterval   time.Duration
+	maxRequestSize     int64
+	pingInterval       time.Duration
+	namespaceDelimiter string
 
 	paramDecoders map[reflect.Type]ParamDecoder
 	errors        *Errors
@@ -27,10 +28,10 @@ type ServerOption func(c *ServerConfig)
 
 func defaultServerConfig() ServerConfig {
 	return ServerConfig{
-		paramDecoders:  map[reflect.Type]ParamDecoder{},
-		maxRequestSize: DEFAULT_MAX_REQUEST_SIZE,
-
-		pingInterval: 5 * time.Second,
+		paramDecoders:      map[reflect.Type]ParamDecoder{},
+		maxRequestSize:     DEFAULT_MAX_REQUEST_SIZE,
+		namespaceDelimiter: ".",
+		pingInterval:       5 * time.Second,
 	}
 }
 
@@ -64,8 +65,9 @@ func WithReverseClient[RP any](namespace string) ServerOption {
 	return func(c *ServerConfig) {
 		c.reverseClientBuilder = func(ctx context.Context, conn *wsConn) (context.Context, error) {
 			cl := client{
-				namespace:     namespace,
-				paramEncoders: map[reflect.Type]ParamEncoder{},
+				namespace:          namespace,
+				namespaceDelimiter: c.namespaceDelimiter,
+				paramEncoders:      map[reflect.Type]ParamEncoder{},
 			}
 
 			// todo test that everything is closing correctly
