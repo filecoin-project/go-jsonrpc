@@ -1360,6 +1360,7 @@ func TestReverseCallAliased(t *testing.T) {
 	defer testServ.Close()
 
 	// setup client
+
 	var client struct {
 		Call func() error
 	}
