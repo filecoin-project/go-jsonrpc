@@ -118,6 +118,7 @@ type handler struct {
 
 	// aliasedMethods contains a map of alias:original method names.
 	// These are used as fallbacks if a method is not found by the given method name.
+	delimiter      string
 	aliasedMethods map[string]string
 
 	paramDecoders map[reflect.Type]ParamDecoder
@@ -137,7 +138,7 @@ func makeHandler(sc ServerConfig) *handler {
 
 // Register
 
-func (s *handler) register(namespace string, r interface{}) {
+func (s *handler) register(namespace string, delimiter string, r interface{}) {
 	val := reflect.ValueOf(r)
 	// TODO: expect ptr
 
@@ -165,7 +166,7 @@ func (s *handler) register(namespace string, r interface{}) {
 
 		valOut, errOut, _ := processFuncOut(funcType)
 
-		s.methods[namespace+"."+method.Name] = methodHandler{
+		s.methods[namespace+delimiter+method.Name] = methodHandler{
 			paramReceivers: recvs,
 			nParams:        ins,
 
