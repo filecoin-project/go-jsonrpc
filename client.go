@@ -95,7 +95,7 @@ func NewClient(ctx context.Context, addr string, namespace string, handler inter
 
 type client struct {
 	namespace     string
-	delimeter     string
+	delimiter     string
 	paramEncoders map[reflect.Type]ParamEncoder
 	errors        *Errors
 
@@ -131,7 +131,7 @@ func NewMergeClient(ctx context.Context, addr string, namespace string, outs []i
 func httpClient(ctx context.Context, addr string, namespace string, outs []interface{}, requestHeader http.Header, config Config) (ClientCloser, error) {
 	c := client{
 		namespace:     namespace,
-		delimeter:     config.namespaceDelimeter,
+		delimiter:     config.namespacedelimiter,
 		paramEncoders: config.paramEncoders,
 		errors:        config.errors,
 	}
@@ -220,7 +220,7 @@ func websocketClient(ctx context.Context, addr string, namespace string, outs []
 
 	c := client{
 		namespace:     namespace,
-		delimeter:     config.namespaceDelimeter,
+		delimiter:     config.namespacedelimiter,
 		paramEncoders: config.paramEncoders,
 		errors:        config.errors,
 	}
@@ -236,7 +236,7 @@ func websocketClient(ctx context.Context, addr string, namespace string, outs []
 		h := makeHandler(defaultServerConfig())
 		h.aliasedMethods = config.aliasedHandlerMethods
 		for _, reverseHandler := range config.reverseHandlers {
-			h.register(reverseHandler.ns, c.delimeter, reverseHandler.hnd)
+			h.register(reverseHandler.ns, c.delimiter, reverseHandler.hnd)
 		}
 		hnd = h
 	}
@@ -636,7 +636,7 @@ func (c *client) makeRpcFunc(f reflect.StructField) (reflect.Value, error) {
 		return reflect.Value{}, xerrors.New("handler field not a func")
 	}
 
-	name := c.namespace + c.delimeter + f.Name
+	name := c.namespace + c.delimiter + f.Name
 	if tag, ok := f.Tag.Lookup(ProxyTagRPCMethod); ok {
 		name = tag
 	}

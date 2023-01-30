@@ -24,7 +24,7 @@ type Config struct {
 	errors        *Errors
 
 	reverseHandlers       []clientHandler
-	namespaceDelimeter    string
+	namespacedelimiter    string
 	aliasedHandlerMethods map[string]string
 
 	httpClient *http.Client
@@ -42,7 +42,7 @@ func defaultConfig() Config {
 		pingInterval: 5 * time.Second,
 		timeout:      30 * time.Second,
 
-		namespaceDelimeter:    ".",
+		namespacedelimiter:    ".",
 		aliasedHandlerMethods: map[string]string{},
 
 		paramEncoders: map[reflect.Type]ParamEncoder{},
