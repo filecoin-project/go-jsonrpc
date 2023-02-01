@@ -338,11 +338,13 @@ func (s *handler) handle(ctx context.Context, req request, w func(func(io.Writer
 		// "normal" param list; no good way to do named params in Golang
 
 		var ps []param
-		err := json.Unmarshal(req.Params, &ps)
-		if err != nil {
-			rpcError(w, &req, rpcParseError, xerrors.Errorf("unmarshaling param array: %w", err))
-			stats.Record(ctx, metrics.RPCRequestError.M(1))
-			return
+		if len(req.Params) > 0 {
+			err := json.Unmarshal(req.Params, &ps)
+			if err != nil {
+				rpcError(w, &req, rpcParseError, xerrors.Errorf("unmarshaling param array: %w", err))
+				stats.Record(ctx, metrics.RPCRequestError.M(1))
+				return
+			}
 		}
 
 		if len(ps) != handler.nParams {
