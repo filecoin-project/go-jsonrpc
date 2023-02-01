@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net"
+	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strconv"
@@ -45,6 +46,12 @@ type TestOut struct {
 	Ok bool
 }
 
+func (h *SimpleServerHandler) Inc() error {
+	h.n++
+
+	return nil
+}
+
 func (h *SimpleServerHandler) Add(in int) error {
 	if in == -3546 {
 		return errors.New("test")
@@ -70,6 +77,37 @@ func (h *SimpleServerHandler) StringMatch(t TestType, i2 int64) (out TestOut, er
 	out.I = t.I
 	out.S = t.S
 	return
+}
+
+func TestRawRequests(t *testing.T) {
+	rpcHandler := SimpleServerHandler{}
+
+	rpcServer := NewServer()
+	rpcServer.Register("SimpleServerHandler", &rpcHandler)
+
+	testServ := httptest.NewServer(rpcServer)
+	defer testServ.Close()
+
+	tc := func(req, resp string, n int) func(t *testing.T) {
+		return func(t *testing.T) {
+			rpcHandler.n = 0
+
+			res, err := http.Post(testServ.URL, "application/json", strings.NewReader(req))
+			require.NoError(t, err)
+
+			b, err := ioutil.ReadAll(res.Body)
+			require.NoError(t, err)
+
+			assert.Equal(t, resp, strings.TrimSpace(string(b)))
+			require.Equal(t, n, rpcHandler.n)
+		}
+	}
+
+	t.Run("inc", tc(`{"jsonrpc": "2.0", "method": "SimpleServerHandler.Inc", "params": [], "id": 1}`, `{"jsonrpc":"2.0","id":1}`, 1))
+	t.Run("inc-null", tc(`{"jsonrpc": "2.0", "method": "SimpleServerHandler.Inc", "params": null, "id": 1}`, `{"jsonrpc":"2.0","id":1}`, 1))
+	t.Run("inc-noparam", tc(`{"jsonrpc": "2.0", "method": "SimpleServerHandler.Inc", "id": 2}`, `{"jsonrpc":"2.0","id":2}`, 1))
+	t.Run("add", tc(`{"jsonrpc": "2.0", "method": "SimpleServerHandler.Add", "params": [10], "id": 4}`, `{"jsonrpc":"2.0","id":4}`, 10))
+
 }
 
 func TestReconnection(t *testing.T) {
