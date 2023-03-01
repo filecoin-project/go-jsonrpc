@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -34,7 +35,7 @@ func init() {
 }
 
 type SimpleServerHandler struct {
-	n int
+	n int32
 }
 
 type TestType struct {
@@ -58,14 +59,14 @@ func (h *SimpleServerHandler) Add(in int) error {
 		return errors.New("test")
 	}
 
-	h.n += in
+	atomic.AddInt32(&h.n, int32(in))
 
 	return nil
 }
 
 func (h *SimpleServerHandler) AddGet(in int) int {
-	h.n += in
-	return h.n
+	atomic.AddInt32(&h.n, int32(in))
+	return int(h.n)
 }
 
 func (h *SimpleServerHandler) StringMatch(t TestType, i2 int64) (out TestOut, err error) {
@@ -89,7 +90,7 @@ func TestRawRequests(t *testing.T) {
 	testServ := httptest.NewServer(rpcServer)
 	defer testServ.Close()
 
-	tc := func(req, resp string, n int) func(t *testing.T) {
+	tc := func(req, resp string, n int32) func(t *testing.T) {
 		return func(t *testing.T) {
 			rpcHandler.n = 0
 
@@ -226,7 +227,7 @@ func TestRPC(t *testing.T) {
 	// Add(int) error
 
 	require.NoError(t, client.Add(2))
-	require.Equal(t, 2, serverHandler.n)
+	require.Equal(t, 2, int(serverHandler.n))
 
 	err = client.Add(-3546)
 	require.EqualError(t, err, "test")
@@ -235,7 +236,7 @@ func TestRPC(t *testing.T) {
 
 	n := client.AddGet(3)
 	require.Equal(t, 5, n)
-	require.Equal(t, 5, serverHandler.n)
+	require.Equal(t, 5, int(serverHandler.n))
 
 	// StringMatch
 
@@ -269,7 +270,7 @@ func TestRPC(t *testing.T) {
 
 	// this one should actually work
 	noret.Add(4)
-	require.Equal(t, 9, serverHandler.n)
+	require.Equal(t, 9, int(serverHandler.n))
 	closer()
 
 	var noparam struct {
@@ -344,7 +345,7 @@ func TestRPCHttpClient(t *testing.T) {
 	// Add(int) error
 
 	require.NoError(t, client.Add(2))
-	require.Equal(t, 2, serverHandler.n)
+	require.Equal(t, 2, int(serverHandler.n))
 
 	err = client.Add(-3546)
 	require.EqualError(t, err, "test")
@@ -353,7 +354,7 @@ func TestRPCHttpClient(t *testing.T) {
 
 	n := client.AddGet(3)
 	require.Equal(t, 5, n)
-	require.Equal(t, 5, serverHandler.n)
+	require.Equal(t, 5, int(serverHandler.n))
 
 	// StringMatch
 
@@ -380,7 +381,7 @@ func TestRPCHttpClient(t *testing.T) {
 
 	// this one should actually work
 	noret.Add(4)
-	require.Equal(t, 9, serverHandler.n)
+	require.Equal(t, 9, int(serverHandler.n))
 	closer()
 
 	var noparam struct {
@@ -428,6 +429,46 @@ func TestRPCHttpClient(t *testing.T) {
 		t.Error("wrong error:", err)
 	}
 	closer()
+}
+
+func TestParallelRPC(t *testing.T) {
+	// setup server
+
+	serverHandler := &SimpleServerHandler{}
+
+	rpcServer := NewServer()
+	rpcServer.Register("SimpleServerHandler", serverHandler)
+
+	// httptest stuff
+	testServ := httptest.NewServer(rpcServer)
+	defer testServ.Close()
+	// setup client
+
+	var client struct {
+		Add func(int) error
+	}
+	closer, err := NewClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "SimpleServerHandler", &client, nil)
+	require.NoError(t, err)
+	defer closer()
+
+	// Add(int) error
+
+	/*require.NoError(t, client.Add(2))
+	require.Equal(t, 2, serverHandler.n)*/
+
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 100; j++ {
+				require.NoError(t, client.Add(2))
+			}
+		}()
+	}
+	wg.Wait()
+
+	require.Equal(t, 20000, int(serverHandler.n))
 }
 
 type CtxHandler struct {

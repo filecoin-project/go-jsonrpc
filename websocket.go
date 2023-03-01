@@ -78,7 +78,8 @@ type wsConn struct {
 	// Client related
 
 	// inflight are requests we've sent to the remote
-	inflight map[interface{}]clientRequest
+	inflight   map[interface{}]clientRequest
+	inflightLk sync.Mutex
 
 	// chanHandlers is a map of client-side channel handlers
 	chanHandlers map[uint64]func(m []byte, ok bool)
@@ -400,7 +401,9 @@ func (c *wsConn) handleChanClose(frame frame) {
 }
 
 func (c *wsConn) handleResponse(frame frame) {
+	c.inflightLk.Lock()
 	req, ok := c.inflight[frame.ID]
+	c.inflightLk.Unlock()
 	if !ok {
 		log.Error("client got unknown ID in response")
 		return
@@ -425,7 +428,9 @@ func (c *wsConn) handleResponse(frame frame) {
 		ID:      frame.ID,
 		Error:   frame.Error,
 	}
+	c.inflightLk.Lock()
 	delete(c.inflight, frame.ID)
+	c.inflightLk.Unlock()
 }
 
 func (c *wsConn) handleCall(ctx context.Context, frame frame) {
@@ -494,6 +499,7 @@ func (c *wsConn) handleFrame(ctx context.Context, frame frame) {
 }
 
 func (c *wsConn) closeInFlight() {
+	c.inflightLk.Lock()
 	for id, req := range c.inflight {
 		req.ready <- clientResponse{
 			Jsonrpc: "2.0",
@@ -504,6 +510,8 @@ func (c *wsConn) closeInFlight() {
 			},
 		}
 	}
+	c.inflight = map[interface{}]clientRequest{}
+	c.inflightLk.Unlock()
 
 	c.handlingLk.Lock()
 	for _, cancel := range c.handling {
@@ -511,7 +519,6 @@ func (c *wsConn) closeInFlight() {
 	}
 	c.handlingLk.Unlock()
 
-	c.inflight = map[interface{}]clientRequest{}
 	c.handling = map[interface{}]context.CancelFunc{}
 }
 
@@ -761,7 +768,9 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 					c.writeLk.Unlock()
 					break
 				}
+				c.inflightLk.Lock()
 				c.inflight[req.req.ID] = req
+				c.inflightLk.Unlock()
 			}
 			c.writeLk.Unlock()
 			serr := c.sendRequest(req.req)
