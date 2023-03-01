@@ -661,13 +661,18 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 			action = "incoming"
 
 			err := c.incomingErr
+			errReason := "incomingErr"
 
 			if ok {
 				// debug util - dump all messages to stderr
 				// r = io.TeeReader(r, os.Stderr)
 
+				errReason = "decode"
+
 				var frame frame
 				if err = json.NewDecoder(r).Decode(&frame); err == nil {
+					errReason = "normalize"
+
 					if frame.ID, err = normalizeID(frame.ID); err == nil {
 						action = fmt.Sprintf("incoming(%s,%v)", frame.Method, frame.ID)
 
@@ -682,7 +687,7 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 				return // remote closed
 			}
 
-			log.Debugw("websocket error", "error", err)
+			log.Debugw("websocket error", "error", err, "reason", errReason, "lastAction", action, "time", time.Since(start))
 			// only client needs to reconnect
 			if !c.tryReconnect(ctx) {
 				return // failed to reconnect
