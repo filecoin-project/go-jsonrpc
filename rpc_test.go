@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -1413,4 +1414,107 @@ func TestReverseCallAliased(t *testing.T) {
 	require.NoError(t, e)
 
 	closer()
+}
+
+type BigCallTestServerHandler struct {
+}
+
+type RecRes struct {
+	I int
+	R []RecRes
+}
+
+func (h *BigCallTestServerHandler) Do() (RecRes, error) {
+	var res RecRes
+	res.I = 123
+
+	for i := 0; i < 15000; i++ {
+		var ires RecRes
+		ires.I = i
+
+		for j := 0; j < 15000; j++ {
+			var jres RecRes
+			jres.I = j
+
+			ires.R = append(ires.R, jres)
+		}
+
+		res.R = append(res.R, ires)
+	}
+
+	fmt.Println("sending result")
+
+	return res, nil
+}
+
+func (h *BigCallTestServerHandler) Ch(ctx context.Context) (<-chan int, error) {
+	out := make(chan int)
+
+	go func() {
+		var i int
+		for {
+			select {
+			case <-ctx.Done():
+				fmt.Println("closing")
+				close(out)
+				return
+			case <-time.After(time.Second):
+			}
+			fmt.Println("sending")
+			out <- i
+			i++
+		}
+	}()
+
+	return out, nil
+}
+
+func TestBigResult(t *testing.T) {
+	if os.Getenv("I_HAVE_A_LOT_OF_MEMORY_AND_TIME") != "1" {
+		// needs ~40GB of memory and ~4 minutes to run
+		t.Skip("skipping test due to requiced resources")
+	}
+
+	// setup server
+
+	serverHandler := &BigCallTestServerHandler{}
+
+	rpcServer := NewServer()
+	rpcServer.Register("SimpleServerHandler", serverHandler)
+
+	// httptest stuff
+	testServ := httptest.NewServer(rpcServer)
+	defer testServ.Close()
+	// setup client
+
+	var client struct {
+		Do func() (RecRes, error)
+		Ch func(ctx context.Context) (<-chan int, error)
+	}
+	closer, err := NewClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "SimpleServerHandler", &client, nil)
+	require.NoError(t, err)
+	defer closer()
+
+	chctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ch, err := client.Ch(chctx)
+	require.NoError(t, err)
+
+	prevN := <-ch
+
+	go func() {
+		for n := range ch {
+			fmt.Println("received")
+			if n != prevN+1 {
+				panic("bad order")
+			}
+			prevN = n
+		}
+	}()
+
+	_, err = client.Do()
+	require.NoError(t, err)
+
+	fmt.Println("done")
 }
