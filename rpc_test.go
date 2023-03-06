@@ -451,11 +451,6 @@ func TestParallelRPC(t *testing.T) {
 	require.NoError(t, err)
 	defer closer()
 
-	// Add(int) error
-
-	/*require.NoError(t, client.Add(2))
-	require.Equal(t, 2, serverHandler.n)*/
-
 	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {
 		wg.Add(1)
@@ -1510,10 +1505,12 @@ func (h *BigCallTestServerHandler) Ch(ctx context.Context) (<-chan int, error) {
 	return out, nil
 }
 
+// TestBigResult tests that the connection doesn't die when sending a large result,
+// and that requests which happen while a large result is being sent don't fail.
 func TestBigResult(t *testing.T) {
 	if os.Getenv("I_HAVE_A_LOT_OF_MEMORY_AND_TIME") != "1" {
 		// needs ~40GB of memory and ~4 minutes to run
-		t.Skip("skipping test due to requiced resources")
+		t.Skip("skipping test due to requiced resources, set I_HAVE_A_LOT_OF_MEMORY_AND_TIME=1 to run")
 	}
 
 	// setup server
@@ -1539,6 +1536,9 @@ func TestBigResult(t *testing.T) {
 	chctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// client.Ch will generate some requests, which will require websocket locks,
+	// and before fixes in #97 would cause deadlocks / timeouts when combined with
+	// the large result processing from client.Do
 	ch, err := client.Ch(chctx)
 	require.NoError(t, err)
 
@@ -1546,7 +1546,6 @@ func TestBigResult(t *testing.T) {
 
 	go func() {
 		for n := range ch {
-			fmt.Println("received")
 			if n != prevN+1 {
 				panic("bad order")
 			}
