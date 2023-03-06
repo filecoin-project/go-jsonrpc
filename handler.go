@@ -446,11 +446,48 @@ func (s *handler) handle(ctx context.Context, req request, w func(func(io.Writer
 		log.Errorw("error and res returned", "request", req, "r.err", resp.Error, "res", res)
 	}
 
-	w(func(w io.Writer) {
+	withLazyWriter(w, func(w io.Writer) {
 		if err := json.NewEncoder(w).Encode(resp); err != nil {
 			log.Error(err)
 			stats.Record(ctx, metrics.RPCResponseError.M(1))
 			return
 		}
 	})
+}
+
+// withLazyWriter makes it possible to defer acquiring a writer until the first write.
+// This is useful because json.Encode needs to marshal the response fully before writing, which may be
+// a problem for very large responses.
+func withLazyWriter(withWriterFunc func(func(io.Writer)), cb func(io.Writer)) {
+	lw := &lazyWriter{
+		withWriterFunc: withWriterFunc,
+
+		done: make(chan struct{}),
+	}
+
+	defer close(lw.done)
+	cb(lw)
+}
+
+type lazyWriter struct {
+	withWriterFunc func(func(io.Writer))
+
+	w    io.Writer
+	done chan struct{}
+}
+
+func (lw *lazyWriter) Write(p []byte) (n int, err error) {
+	if lw.w == nil {
+		acquired := make(chan struct{})
+		go func() {
+			lw.withWriterFunc(func(w io.Writer) {
+				lw.w = w
+				close(acquired)
+				<-lw.done
+			})
+		}()
+		<-acquired
+	}
+
+	return lw.w.Write(p)
 }

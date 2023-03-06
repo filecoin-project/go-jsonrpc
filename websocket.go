@@ -67,6 +67,10 @@ type wsConn struct {
 	incoming    chan io.Reader
 	incomingErr error
 
+	readError chan error
+
+	frameExecQueue chan []byte
+
 	// outgoing messages
 	writeLk sync.Mutex
 
@@ -74,7 +78,8 @@ type wsConn struct {
 	// Client related
 
 	// inflight are requests we've sent to the remote
-	inflight map[interface{}]clientRequest
+	inflight   map[interface{}]clientRequest
+	inflightLk sync.Mutex
 
 	// chanHandlers is a map of client-side channel handlers
 	chanHandlers map[uint64]func(m []byte, ok bool)
@@ -396,7 +401,9 @@ func (c *wsConn) handleChanClose(frame frame) {
 }
 
 func (c *wsConn) handleResponse(frame frame) {
+	c.inflightLk.Lock()
 	req, ok := c.inflight[frame.ID]
+	c.inflightLk.Unlock()
 	if !ok {
 		log.Error("client got unknown ID in response")
 		return
@@ -421,7 +428,9 @@ func (c *wsConn) handleResponse(frame frame) {
 		ID:      frame.ID,
 		Error:   frame.Error,
 	}
+	c.inflightLk.Lock()
 	delete(c.inflight, frame.ID)
+	c.inflightLk.Unlock()
 }
 
 func (c *wsConn) handleCall(ctx context.Context, frame frame) {
@@ -490,6 +499,7 @@ func (c *wsConn) handleFrame(ctx context.Context, frame frame) {
 }
 
 func (c *wsConn) closeInFlight() {
+	c.inflightLk.Lock()
 	for id, req := range c.inflight {
 		req.ready <- clientResponse{
 			Jsonrpc: "2.0",
@@ -500,6 +510,8 @@ func (c *wsConn) closeInFlight() {
 			},
 		}
 	}
+	c.inflight = map[interface{}]clientRequest{}
+	c.inflightLk.Unlock()
 
 	c.handlingLk.Lock()
 	for _, cancel := range c.handling {
@@ -507,7 +519,6 @@ func (c *wsConn) closeInFlight() {
 	}
 	c.handlingLk.Unlock()
 
-	c.inflight = map[interface{}]clientRequest{}
 	c.handling = map[interface{}]context.CancelFunc{}
 }
 
@@ -609,8 +620,63 @@ func (c *wsConn) tryReconnect(ctx context.Context) bool {
 	return true
 }
 
+func (c *wsConn) readFrame(ctx context.Context, r io.Reader) {
+	// debug util - dump all messages to stderr
+	// r = io.TeeReader(r, os.Stderr)
+
+	// json.NewDecoder(r).Decode would read the whole frame as well, so might as well do it
+	// with ReadAll which should be much faster
+	// use a autoResetReader in case the read takes a long time
+	buf, err := io.ReadAll(c.autoResetReader(r)) // todo buffer pool
+	if err != nil {
+		c.readError <- xerrors.Errorf("reading frame into a buffer: %w", err)
+		return
+	}
+
+	c.frameExecQueue <- buf
+	if len(c.frameExecQueue) > cap(c.frameExecQueue)/2 {
+		log.Warnw("frame executor queue is backlogged", "queued", len(c.frameExecQueue), "cap", cap(c.frameExecQueue))
+	}
+
+	// got the whole frame, can start reading the next one in background
+	go c.nextMessage()
+}
+
+func (c *wsConn) frameExecutor(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case buf := <-c.frameExecQueue:
+			var frame frame
+			if err := json.Unmarshal(buf, &frame); err != nil {
+				log.Warnw("failed to unmarshal frame", "error", err)
+				// todo send invalid request response
+				continue
+			}
+
+			var err error
+			frame.ID, err = normalizeID(frame.ID)
+			if err != nil {
+				log.Warnw("failed to normalize frame id", "error", err)
+				// todo send invalid request response
+				continue
+			}
+
+			c.handleFrame(ctx, frame)
+		}
+	}
+}
+
+var maxQueuedFrames = 256
+
 func (c *wsConn) handleWsConn(ctx context.Context) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	c.incoming = make(chan io.Reader)
+	c.readError = make(chan error, 1)
+	c.frameExecQueue = make(chan []byte, maxQueuedFrames)
 	c.inflight = map[interface{}]clientRequest{}
 	c.handling = map[interface{}]context.CancelFunc{}
 	c.chanHandlers = map[uint64]func(m []byte, ok bool){}
@@ -637,6 +703,9 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 		defer timeoutTimer.Stop()
 	}
 
+	// start frame executor
+	go c.frameExecutor(ctx)
+
 	// wait for the first message
 	go c.nextMessage()
 	for {
@@ -659,31 +728,26 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 		select {
 		case r, ok := <-c.incoming:
 			action = "incoming"
-
 			err := c.incomingErr
 
 			if ok {
-				// debug util - dump all messages to stderr
-				// r = io.TeeReader(r, os.Stderr)
-
-				var frame frame
-				if err = json.NewDecoder(r).Decode(&frame); err == nil {
-					if frame.ID, err = normalizeID(frame.ID); err == nil {
-						action = fmt.Sprintf("incoming(%s,%v)", frame.Method, frame.ID)
-
-						c.handleFrame(ctx, frame)
-						go c.nextMessage()
-						break
-					}
-				}
+				go c.readFrame(ctx, r)
+				break
 			}
 
 			if err == nil {
 				return // remote closed
 			}
 
-			log.Debugw("websocket error", "error", err)
+			log.Debugw("websocket error", "error", err, "lastAction", action, "time", time.Since(start))
 			// only client needs to reconnect
+			if !c.tryReconnect(ctx) {
+				return // failed to reconnect
+			}
+		case rerr := <-c.readError:
+			action = "read-error"
+
+			log.Debugw("websocket error", "error", rerr, "lastAction", action, "time", time.Since(start))
 			if !c.tryReconnect(ctx) {
 				return // failed to reconnect
 			}
@@ -704,7 +768,9 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 					c.writeLk.Unlock()
 					break
 				}
+				c.inflightLk.Lock()
 				c.inflight[req.req.ID] = req
+				c.inflightLk.Unlock()
 			}
 			c.writeLk.Unlock()
 			serr := c.sendRequest(req.req)
@@ -766,6 +832,36 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 			log.Debugw("websocket action", "lastAction", action, "time", time.Since(start))
 		}
 	}
+}
+
+var onReadDeadlineResetInterval = 5 * time.Second
+
+// autoResetReader wraps a reader and resets the read deadline on if needed when doing large reads.
+func (c *wsConn) autoResetReader(reader io.Reader) io.Reader {
+	return &deadlineResetReader{
+		r:     reader,
+		reset: c.resetReadDeadline,
+
+		lastReset: time.Now(),
+	}
+}
+
+type deadlineResetReader struct {
+	r     io.Reader
+	reset func()
+
+	lastReset time.Time
+}
+
+func (r *deadlineResetReader) Read(p []byte) (n int, err error) {
+	n, err = r.r.Read(p)
+	if time.Since(r.lastReset) > onReadDeadlineResetInterval {
+		log.Warnw("slow/large read, resetting deadline while reading the frame", "since", time.Since(r.lastReset), "n", n, "err", err, "p", len(p))
+
+		r.reset()
+		r.lastReset = time.Now()
+	}
+	return
 }
 
 func (c *wsConn) resetReadDeadline() {

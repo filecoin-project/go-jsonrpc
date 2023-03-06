@@ -11,9 +11,11 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"runtime/pprof"
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	logging "github.com/ipfs/go-log/v2"
 	"go.opencensus.io/trace"
@@ -238,7 +240,7 @@ func websocketClient(ctx context.Context, addr string, namespace string, outs []
 		hnd = h
 	}
 
-	go (&wsConn{
+	wconn := &wsConn{
 		conn:             conn,
 		connFactory:      connFactory,
 		reconnectBackoff: config.reconnectBackoff,
@@ -248,7 +250,14 @@ func websocketClient(ctx context.Context, addr string, namespace string, outs []
 		requests:         requests,
 		stop:             stop,
 		exiting:          exiting,
-	}).handleWsConn(ctx)
+	}
+
+	go func() {
+		lbl := pprof.Labels("jrpc-mode", "wsclient", "jrpc-remote", addr, "jrpc-local", conn.LocalAddr().String(), "jrpc-uuid", uuid.New().String())
+		pprof.Do(ctx, lbl, func(ctx context.Context) {
+			wconn.handleWsConn(ctx)
+		})
+	}()
 
 	if err := c.provide(outs); err != nil {
 		return nil, err

@@ -10,10 +10,12 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -33,7 +35,7 @@ func init() {
 }
 
 type SimpleServerHandler struct {
-	n int
+	n int32
 }
 
 type TestType struct {
@@ -57,14 +59,14 @@ func (h *SimpleServerHandler) Add(in int) error {
 		return errors.New("test")
 	}
 
-	h.n += in
+	atomic.AddInt32(&h.n, int32(in))
 
 	return nil
 }
 
 func (h *SimpleServerHandler) AddGet(in int) int {
-	h.n += in
-	return h.n
+	atomic.AddInt32(&h.n, int32(in))
+	return int(h.n)
 }
 
 func (h *SimpleServerHandler) StringMatch(t TestType, i2 int64) (out TestOut, err error) {
@@ -88,7 +90,7 @@ func TestRawRequests(t *testing.T) {
 	testServ := httptest.NewServer(rpcServer)
 	defer testServ.Close()
 
-	tc := func(req, resp string, n int) func(t *testing.T) {
+	tc := func(req, resp string, n int32) func(t *testing.T) {
 		return func(t *testing.T) {
 			rpcHandler.n = 0
 
@@ -225,7 +227,7 @@ func TestRPC(t *testing.T) {
 	// Add(int) error
 
 	require.NoError(t, client.Add(2))
-	require.Equal(t, 2, serverHandler.n)
+	require.Equal(t, 2, int(serverHandler.n))
 
 	err = client.Add(-3546)
 	require.EqualError(t, err, "test")
@@ -234,7 +236,7 @@ func TestRPC(t *testing.T) {
 
 	n := client.AddGet(3)
 	require.Equal(t, 5, n)
-	require.Equal(t, 5, serverHandler.n)
+	require.Equal(t, 5, int(serverHandler.n))
 
 	// StringMatch
 
@@ -268,7 +270,7 @@ func TestRPC(t *testing.T) {
 
 	// this one should actually work
 	noret.Add(4)
-	require.Equal(t, 9, serverHandler.n)
+	require.Equal(t, 9, int(serverHandler.n))
 	closer()
 
 	var noparam struct {
@@ -343,7 +345,7 @@ func TestRPCHttpClient(t *testing.T) {
 	// Add(int) error
 
 	require.NoError(t, client.Add(2))
-	require.Equal(t, 2, serverHandler.n)
+	require.Equal(t, 2, int(serverHandler.n))
 
 	err = client.Add(-3546)
 	require.EqualError(t, err, "test")
@@ -352,7 +354,7 @@ func TestRPCHttpClient(t *testing.T) {
 
 	n := client.AddGet(3)
 	require.Equal(t, 5, n)
-	require.Equal(t, 5, serverHandler.n)
+	require.Equal(t, 5, int(serverHandler.n))
 
 	// StringMatch
 
@@ -379,7 +381,7 @@ func TestRPCHttpClient(t *testing.T) {
 
 	// this one should actually work
 	noret.Add(4)
-	require.Equal(t, 9, serverHandler.n)
+	require.Equal(t, 9, int(serverHandler.n))
 	closer()
 
 	var noparam struct {
@@ -427,6 +429,41 @@ func TestRPCHttpClient(t *testing.T) {
 		t.Error("wrong error:", err)
 	}
 	closer()
+}
+
+func TestParallelRPC(t *testing.T) {
+	// setup server
+
+	serverHandler := &SimpleServerHandler{}
+
+	rpcServer := NewServer()
+	rpcServer.Register("SimpleServerHandler", serverHandler)
+
+	// httptest stuff
+	testServ := httptest.NewServer(rpcServer)
+	defer testServ.Close()
+	// setup client
+
+	var client struct {
+		Add func(int) error
+	}
+	closer, err := NewClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "SimpleServerHandler", &client, nil)
+	require.NoError(t, err)
+	defer closer()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 100; j++ {
+				require.NoError(t, client.Add(2))
+			}
+		}()
+	}
+	wg.Wait()
+
+	require.Equal(t, 20000, int(serverHandler.n))
 }
 
 type CtxHandler struct {
@@ -1413,4 +1450,111 @@ func TestReverseCallAliased(t *testing.T) {
 	require.NoError(t, e)
 
 	closer()
+}
+
+type BigCallTestServerHandler struct {
+}
+
+type RecRes struct {
+	I int
+	R []RecRes
+}
+
+func (h *BigCallTestServerHandler) Do() (RecRes, error) {
+	var res RecRes
+	res.I = 123
+
+	for i := 0; i < 15000; i++ {
+		var ires RecRes
+		ires.I = i
+
+		for j := 0; j < 15000; j++ {
+			var jres RecRes
+			jres.I = j
+
+			ires.R = append(ires.R, jres)
+		}
+
+		res.R = append(res.R, ires)
+	}
+
+	fmt.Println("sending result")
+
+	return res, nil
+}
+
+func (h *BigCallTestServerHandler) Ch(ctx context.Context) (<-chan int, error) {
+	out := make(chan int)
+
+	go func() {
+		var i int
+		for {
+			select {
+			case <-ctx.Done():
+				fmt.Println("closing")
+				close(out)
+				return
+			case <-time.After(time.Second):
+			}
+			fmt.Println("sending")
+			out <- i
+			i++
+		}
+	}()
+
+	return out, nil
+}
+
+// TestBigResult tests that the connection doesn't die when sending a large result,
+// and that requests which happen while a large result is being sent don't fail.
+func TestBigResult(t *testing.T) {
+	if os.Getenv("I_HAVE_A_LOT_OF_MEMORY_AND_TIME") != "1" {
+		// needs ~40GB of memory and ~4 minutes to run
+		t.Skip("skipping test due to requiced resources, set I_HAVE_A_LOT_OF_MEMORY_AND_TIME=1 to run")
+	}
+
+	// setup server
+
+	serverHandler := &BigCallTestServerHandler{}
+
+	rpcServer := NewServer()
+	rpcServer.Register("SimpleServerHandler", serverHandler)
+
+	// httptest stuff
+	testServ := httptest.NewServer(rpcServer)
+	defer testServ.Close()
+	// setup client
+
+	var client struct {
+		Do func() (RecRes, error)
+		Ch func(ctx context.Context) (<-chan int, error)
+	}
+	closer, err := NewClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "SimpleServerHandler", &client, nil)
+	require.NoError(t, err)
+	defer closer()
+
+	chctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// client.Ch will generate some requests, which will require websocket locks,
+	// and before fixes in #97 would cause deadlocks / timeouts when combined with
+	// the large result processing from client.Do
+	ch, err := client.Ch(chctx)
+	require.NoError(t, err)
+
+	prevN := <-ch
+
+	go func() {
+		for n := range ch {
+			if n != prevN+1 {
+				panic("bad order")
+			}
+			prevN = n
+		}
+	}()
+
+	_, err = client.Do()
+	require.NoError(t, err)
+
+	fmt.Println("done")
 }

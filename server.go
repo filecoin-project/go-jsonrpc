@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"runtime/pprof"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 
@@ -77,7 +79,10 @@ func (s *RPCServer) handleWS(ctx context.Context, w http.ResponseWriter, r *http
 		}
 	}
 
-	wc.handleWsConn(ctx)
+	lbl := pprof.Labels("jrpc-mode", "wsserver", "jrpc-remote", r.RemoteAddr, "jrpc-uuid", uuid.New().String())
+	pprof.Do(ctx, lbl, func(ctx context.Context) {
+		wc.handleWsConn(ctx)
+	})
 
 	if err := c.Close(); err != nil {
 		log.Errorw("closing websocket connection", "error", err)
