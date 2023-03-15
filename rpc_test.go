@@ -1452,6 +1452,65 @@ func TestReverseCallAliased(t *testing.T) {
 	closer()
 }
 
+// RevCallDropTestServerHandler attempts to make a client call on a closed connection.
+type RevCallDropTestServerHandler struct {
+	closeConn func()
+	res       chan error
+}
+
+func (h *RevCallDropTestServerHandler) Call(ctx context.Context) error {
+	revClient, ok := ExtractReverseClient[RevCallTestClientProxy](ctx)
+	if !ok {
+		return fmt.Errorf("no reverse client")
+	}
+
+	h.closeConn()
+	time.Sleep(time.Second)
+
+	_, err := revClient.CallOnClient(7)
+	h.res <- err
+
+	return nil
+}
+
+func TestReverseCallDroppedConn(t *testing.T) {
+	// setup server
+
+	hnd := &RevCallDropTestServerHandler{
+		res: make(chan error),
+	}
+
+	rpcServer := NewServer(WithReverseClient[RevCallTestClientProxy]("Client"))
+	rpcServer.Register("Server", hnd)
+
+	// httptest stuff
+	testServ := httptest.NewServer(rpcServer)
+	defer testServ.Close()
+
+	// setup client
+
+	var client struct {
+		Call func() error
+	}
+	closer, err := NewMergeClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "Server", []interface{}{
+		&client,
+	}, nil, WithClientHandler("Client", &RevCallTestClientHandler{}))
+	require.NoError(t, err)
+
+	hnd.closeConn = closer
+
+	// do the call!
+	e := client.Call()
+
+	require.Error(t, e)
+	require.Contains(t, e.Error(), "websocket connection closed")
+
+	res := <-hnd.res
+	require.Error(t, res)
+	require.Contains(t, res.Error(), "RPC client error: sendRequest failed: websocket routine exiting")
+	time.Sleep(100 * time.Millisecond)
+}
+
 type BigCallTestServerHandler struct {
 }
 
