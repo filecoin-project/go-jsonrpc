@@ -90,6 +90,21 @@ func TestRawRequests(t *testing.T) {
 	testServ := httptest.NewServer(rpcServer)
 	defer testServ.Close()
 
+	removeSpaces := func(jsonStr string) (string, error) {
+		var jsonObj interface{}
+		err := json.Unmarshal([]byte(jsonStr), &jsonObj)
+		if err != nil {
+			return "", err
+		}
+
+		compactJSONBytes, err := json.Marshal(jsonObj)
+		if err != nil {
+			return "", err
+		}
+
+		return string(compactJSONBytes), nil
+	}
+
 	tc := func(req, resp string, n int32) func(t *testing.T) {
 		return func(t *testing.T) {
 			rpcHandler.n = 0
@@ -100,7 +115,13 @@ func TestRawRequests(t *testing.T) {
 			b, err := ioutil.ReadAll(res.Body)
 			require.NoError(t, err)
 
-			assert.Equal(t, resp, strings.TrimSpace(string(b)))
+			expectedResp, err := removeSpaces(resp)
+			require.NoError(t, err)
+
+			responseBody, err := removeSpaces(string(b))
+			require.NoError(t, err)
+
+			assert.Equal(t, expectedResp, responseBody)
 			require.Equal(t, n, rpcHandler.n)
 		}
 	}
@@ -109,7 +130,11 @@ func TestRawRequests(t *testing.T) {
 	t.Run("inc-null", tc(`{"jsonrpc": "2.0", "method": "SimpleServerHandler.Inc", "params": null, "id": 1}`, `{"jsonrpc":"2.0","id":1}`, 1))
 	t.Run("inc-noparam", tc(`{"jsonrpc": "2.0", "method": "SimpleServerHandler.Inc", "id": 2}`, `{"jsonrpc":"2.0","id":2}`, 1))
 	t.Run("add", tc(`{"jsonrpc": "2.0", "method": "SimpleServerHandler.Add", "params": [10], "id": 4}`, `{"jsonrpc":"2.0","id":4}`, 10))
-
+	// Batch requests
+	t.Run("add", tc(`[{"jsonrpc": "2.0", "method": "SimpleServerHandler.Add", "params": [123], "id": 5}`, `{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"Parse error"}}`, 0))
+	t.Run("add", tc(`[{"jsonrpc": "2.0", "method": "SimpleServerHandler.Add", "params": [123], "id": 6}]`, `[{"jsonrpc":"2.0","id":6}]`, 123))
+	t.Run("add", tc(`[{"jsonrpc": "2.0", "method": "SimpleServerHandler.Add", "params": [123], "id": 7},{"jsonrpc": "2.0", "method": "SimpleServerHandler.Add", "params": [-122], "id": 8}]`, `[{"jsonrpc":"2.0","id":7},{"jsonrpc":"2.0","id":8}]`, 1))
+	t.Run("add", tc(`[{"jsonrpc": "2.0", "method": "SimpleServerHandler.Add", "params": [123], "id": 9},{"jsonrpc": "2.0", "params": [-122], "id": 10}]`, `[{"jsonrpc":"2.0","id":9},{"error":{"code":-32601,"message":"method '' not found"},"id":10,"jsonrpc":"2.0"}]`, 123))
 }
 
 func TestReconnection(t *testing.T) {

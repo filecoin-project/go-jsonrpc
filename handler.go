@@ -222,11 +222,11 @@ func (s *handler) handleReader(ctx context.Context, r io.Reader, w io.Writer, rp
 		return
 	}
 
-	if bufferedRequest.Bytes()[0] == '[' {
+	if bufferedRequest.Bytes()[0] == '[' && bufferedRequest.Bytes()[reqSize-1] == ']' {
 		var reqs []request
 
 		if err := json.NewDecoder(bufferedRequest).Decode(&reqs); err != nil {
-			rpcError(wf, nil, rpcParseError, xerrors.Errorf("Parse error: %w", err))
+			rpcError(wf, nil, rpcParseError, xerrors.New("Parse error"))
 			return
 		}
 
@@ -252,7 +252,7 @@ func (s *handler) handleReader(ctx context.Context, r io.Reader, w io.Writer, rp
 	} else {
 		var req request
 		if err := json.NewDecoder(bufferedRequest).Decode(&req); err != nil {
-			rpcError(wf, &req, rpcParseError, xerrors.Errorf("Parse error: %w", err))
+			rpcError(wf, &req, rpcParseError, xerrors.New("Parse error"))
 			return
 		}
 
