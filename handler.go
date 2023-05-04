@@ -217,6 +217,10 @@ func (s *handler) handleReader(ctx context.Context, r io.Reader, w io.Writer, rp
 		return
 	}
 
+	// Trim spaces to avoid issues with batch request detection.
+	bufferedRequest = bytes.NewBuffer(bytes.TrimSpace(bufferedRequest.Bytes()))
+	reqSize = int64(bufferedRequest.Len())
+
 	if reqSize == 0 {
 		rpcError(wf, nil, rpcInvalidRequest, xerrors.New("Invalid request"))
 		return

@@ -108,7 +108,11 @@ func rpcError(wf func(func(io.Writer)), req *request, code ErrorCode, err error)
 	log.Errorf("RPC Error: %s", err)
 	wf(func(w io.Writer) {
 		if hw, ok := w.(http.ResponseWriter); ok {
-			hw.WriteHeader(200)
+			if code == rpcInvalidRequest {
+				hw.WriteHeader(400)
+			} else {
+				hw.WriteHeader(500)
+			}
 		}
 
 		log.Warnf("rpc error: %s", err)
