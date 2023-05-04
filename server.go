@@ -15,6 +15,7 @@ import (
 
 const (
 	rpcParseError     = -32700
+	rpcInvalidRequest = -32600
 	rpcMethodNotFound = -32601
 	rpcInvalidParams  = -32602
 )
@@ -107,13 +108,17 @@ func rpcError(wf func(func(io.Writer)), req *request, code ErrorCode, err error)
 	log.Errorf("RPC Error: %s", err)
 	wf(func(w io.Writer) {
 		if hw, ok := w.(http.ResponseWriter); ok {
-			hw.WriteHeader(500)
+			if code == rpcInvalidRequest {
+				hw.WriteHeader(400)
+			} else {
+				hw.WriteHeader(500)
+			}
 		}
 
 		log.Warnf("rpc error: %s", err)
 
-		if req.ID == nil { // notification
-			return
+		if req == nil {
+			req = &request{}
 		}
 
 		resp := response{

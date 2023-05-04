@@ -191,7 +191,6 @@ func (s *handler) handleReader(ctx context.Context, r io.Reader, w io.Writer, rp
 		cb(w)
 	}
 
-	var req request
 	// We read the entire request upfront in a buffer to be able to tell if the
 	// client sent more than maxRequestSize and report it back as an explicit error,
 	// instead of just silently truncating it and reporting a more vague parsing
@@ -205,11 +204,11 @@ func (s *handler) handleReader(ctx context.Context, r io.Reader, w io.Writer, rp
 	if err != nil {
 		// ReadFrom will discard EOF so any error here is unexpected and should
 		// be reported.
-		rpcError(wf, &req, rpcParseError, xerrors.Errorf("reading request: %w", err))
+		rpcError(wf, nil, rpcParseError, xerrors.Errorf("reading request: %w", err))
 		return
 	}
 	if reqSize > s.maxRequestSize {
-		rpcError(wf, &req, rpcParseError,
+		rpcError(wf, nil, rpcParseError,
 			// rpcParseError is the closest we have from the standard errors defined
 			// in [jsonrpc spec](https://www.jsonrpc.org/specification#error_object)
 			// to report the maximum limit.
@@ -218,17 +217,56 @@ func (s *handler) handleReader(ctx context.Context, r io.Reader, w io.Writer, rp
 		return
 	}
 
-	if err := json.NewDecoder(bufferedRequest).Decode(&req); err != nil {
-		rpcError(wf, &req, rpcParseError, xerrors.Errorf("unmarshaling request: %w", err))
+	// Trim spaces to avoid issues with batch request detection.
+	bufferedRequest = bytes.NewBuffer(bytes.TrimSpace(bufferedRequest.Bytes()))
+	reqSize = int64(bufferedRequest.Len())
+
+	if reqSize == 0 {
+		rpcError(wf, nil, rpcInvalidRequest, xerrors.New("Invalid request"))
 		return
 	}
 
-	if req.ID, err = normalizeID(req.ID); err != nil {
-		rpcError(wf, &req, rpcParseError, xerrors.Errorf("failed to parse ID: %w", err))
-		return
-	}
+	if bufferedRequest.Bytes()[0] == '[' && bufferedRequest.Bytes()[reqSize-1] == ']' {
+		var reqs []request
 
-	s.handle(ctx, req, wf, rpcError, func(bool) {}, nil)
+		if err := json.NewDecoder(bufferedRequest).Decode(&reqs); err != nil {
+			rpcError(wf, nil, rpcParseError, xerrors.New("Parse error"))
+			return
+		}
+
+		if len(reqs) == 0 {
+			rpcError(wf, nil, rpcInvalidRequest, xerrors.New("Invalid request"))
+			return
+		}
+
+		w.Write([]byte("["))
+		for idx, req := range reqs {
+			if req.ID, err = normalizeID(req.ID); err != nil {
+				rpcError(wf, &req, rpcParseError, xerrors.Errorf("failed to parse ID: %w", err))
+				return
+			}
+
+			s.handle(ctx, req, wf, rpcError, func(bool) {}, nil)
+
+			if idx != len(reqs)-1 {
+				w.Write([]byte(","))
+			}
+		}
+		w.Write([]byte("]"))
+	} else {
+		var req request
+		if err := json.NewDecoder(bufferedRequest).Decode(&req); err != nil {
+			rpcError(wf, &req, rpcParseError, xerrors.New("Parse error"))
+			return
+		}
+
+		if req.ID, err = normalizeID(req.ID); err != nil {
+			rpcError(wf, &req, rpcParseError, xerrors.Errorf("failed to parse ID: %w", err))
+			return
+		}
+
+		s.handle(ctx, req, wf, rpcError, func(bool) {}, nil)
+	}
 }
 
 func doCall(methodName string, f reflect.Value, params []reflect.Value) (out []reflect.Value, err error) {
