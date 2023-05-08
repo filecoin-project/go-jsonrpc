@@ -239,7 +239,12 @@ func (s *handler) handleReader(ctx context.Context, r io.Reader, w io.Writer, rp
 			return
 		}
 
-		w.Write([]byte("["))
+		_, err = w.Write([]byte("["))
+		if err != nil {
+			log.Errorf("failed to write response: %w", err)
+			rpcError(wf, nil, rpcInternalError, xerrors.New("Server error"))
+			return
+		}
 		for idx, req := range reqs {
 			if req.ID, err = normalizeID(req.ID); err != nil {
 				rpcError(wf, &req, rpcParseError, xerrors.Errorf("failed to parse ID: %w", err))
@@ -252,7 +257,12 @@ func (s *handler) handleReader(ctx context.Context, r io.Reader, w io.Writer, rp
 				w.Write([]byte(","))
 			}
 		}
-		w.Write([]byte("]"))
+		_, err = w.Write([]byte("]"))
+		if err != nil {
+			log.Errorf("failed to write response: %w", err)
+			rpcError(wf, nil, rpcInternalError, xerrors.New("Server error"))
+			return
+		}
 	} else {
 		var req request
 		if err := json.NewDecoder(bufferedRequest).Decode(&req); err != nil {
