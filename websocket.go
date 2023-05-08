@@ -82,7 +82,8 @@ type wsConn struct {
 	inflightLk sync.Mutex
 
 	// chanHandlers is a map of client-side channel handlers
-	chanHandlers map[uint64]func(m []byte, ok bool)
+	chanHandlersLk sync.Mutex
+	chanHandlers   map[uint64]*chanHandler
 
 	// ////
 	// Server related
@@ -97,6 +98,13 @@ type wsConn struct {
 	chanCtr uint64
 
 	registerCh chan outChanReg
+}
+
+type chanHandler struct {
+	// take inside chanHandlersLk
+	lk sync.Mutex
+
+	cb func(m []byte, ok bool)
 }
 
 //                         //
@@ -367,13 +375,20 @@ func (c *wsConn) handleChanMessage(frame frame) {
 		return
 	}
 
+	c.chanHandlersLk.Lock()
 	hnd, ok := c.chanHandlers[chid]
 	if !ok {
+		c.chanHandlersLk.Unlock()
 		log.Errorf("xrpc.ch.val: handler %d not found", chid)
 		return
 	}
 
-	hnd(params[1].data, true)
+	hnd.lk.Lock()
+	defer hnd.lk.Unlock()
+
+	c.chanHandlersLk.Unlock()
+
+	hnd.cb(params[1].data, true)
 }
 
 func (c *wsConn) handleChanClose(frame frame) {
@@ -389,15 +404,22 @@ func (c *wsConn) handleChanClose(frame frame) {
 		return
 	}
 
+	c.chanHandlersLk.Lock()
 	hnd, ok := c.chanHandlers[chid]
 	if !ok {
+		c.chanHandlersLk.Unlock()
 		log.Errorf("xrpc.ch.val: handler %d not found", chid)
 		return
 	}
 
+	hnd.lk.Lock()
+	defer hnd.lk.Unlock()
+
 	delete(c.chanHandlers, chid)
 
-	hnd(nil, false)
+	c.chanHandlersLk.Unlock()
+
+	hnd.cb(nil, false)
 }
 
 func (c *wsConn) handleResponse(frame frame) {
@@ -417,8 +439,12 @@ func (c *wsConn) handleResponse(frame frame) {
 			return
 		}
 
-		var chanCtx context.Context
-		chanCtx, c.chanHandlers[chid] = req.retCh()
+		chanCtx, chHnd := req.retCh()
+
+		c.chanHandlersLk.Lock()
+		c.chanHandlers[chid] = &chanHandler{cb: chHnd}
+		c.chanHandlersLk.Unlock()
+
 		go c.handleCtxAsync(chanCtx, frame.ID)
 	}
 
@@ -517,16 +543,28 @@ func (c *wsConn) closeInFlight() {
 	for _, cancel := range c.handling {
 		cancel()
 	}
+	c.handling = map[interface{}]context.CancelFunc{}
 	c.handlingLk.Unlock()
 
-	c.handling = map[interface{}]context.CancelFunc{}
 }
 
 func (c *wsConn) closeChans() {
+	c.chanHandlersLk.Lock()
+	defer c.chanHandlersLk.Unlock()
+
 	for chid := range c.chanHandlers {
 		hnd := c.chanHandlers[chid]
+
+		hnd.lk.Lock()
+
 		delete(c.chanHandlers, chid)
-		hnd(nil, false)
+
+		c.chanHandlersLk.Unlock()
+
+		hnd.cb(nil, false)
+
+		hnd.lk.Unlock()
+		c.chanHandlersLk.Lock()
 	}
 }
 
@@ -679,7 +717,7 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 	c.frameExecQueue = make(chan []byte, maxQueuedFrames)
 	c.inflight = map[interface{}]clientRequest{}
 	c.handling = map[interface{}]context.CancelFunc{}
-	c.chanHandlers = map[uint64]func(m []byte, ok bool){}
+	c.chanHandlers = map[uint64]*chanHandler{}
 	c.pongs = make(chan struct{}, 1)
 
 	c.registerCh = make(chan outChanReg)
