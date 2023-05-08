@@ -1007,8 +1007,10 @@ func TestChanClientReceiveAll(t *testing.T) {
 }
 
 func TestControlChanDeadlock(t *testing.T) {
-	logging.SetLogLevel("rpc", "error")
-	defer logging.SetLogLevel("rpc", "debug")
+	_ = logging.SetLogLevel("rpc", "error")
+	defer func() {
+		_ = logging.SetLogLevel("rpc", "debug")
+	}()
 
 	for r := 0; r < 20; r++ {
 		testControlChanDeadlock(t)

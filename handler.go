@@ -239,7 +239,7 @@ func (s *handler) handleReader(ctx context.Context, r io.Reader, w io.Writer, rp
 			return
 		}
 
-		w.Write([]byte("["))
+		_, _ = w.Write([]byte("[")) // todo consider handling this error
 		for idx, req := range reqs {
 			if req.ID, err = normalizeID(req.ID); err != nil {
 				rpcError(wf, &req, rpcParseError, xerrors.Errorf("failed to parse ID: %w", err))
@@ -249,10 +249,10 @@ func (s *handler) handleReader(ctx context.Context, r io.Reader, w io.Writer, rp
 			s.handle(ctx, req, wf, rpcError, func(bool) {}, nil)
 
 			if idx != len(reqs)-1 {
-				w.Write([]byte(","))
+				_, _ = w.Write([]byte(",")) // todo consider handling this error
 			}
 		}
-		w.Write([]byte("]"))
+		_, _ = w.Write([]byte("]")) // todo consider handling this error
 	} else {
 		var req request
 		if err := json.NewDecoder(bufferedRequest).Decode(&req); err != nil {
