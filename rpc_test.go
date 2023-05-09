@@ -160,16 +160,16 @@ func TestReconnection(t *testing.T) {
 	timer := time.NewTimer(captureDuration)
 
 	// record the number of connection attempts during this test
-	connectionAttempts := 1
+	connectionAttempts := int64(1)
 
 	closer, err := NewMergeClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "SimpleServerHandler", []interface{}{&rpcClient}, nil, func(c *Config) {
 		c.proxyConnFactory = func(f func() (*websocket.Conn, error)) func() (*websocket.Conn, error) {
 			return func() (*websocket.Conn, error) {
 				defer func() {
-					connectionAttempts++
+					atomic.AddInt64(&connectionAttempts, 1)
 				}()
 
-				if connectionAttempts > 1 {
+				if atomic.LoadInt64(&connectionAttempts) > 1 {
 					return nil, errors.New("simulates a failed reconnect attempt")
 				}
 
@@ -192,7 +192,7 @@ func TestReconnection(t *testing.T) {
 	<-timer.C
 
 	// do some math
-	attemptsPerSecond := int64(connectionAttempts) / int64(captureDuration/time.Second)
+	attemptsPerSecond := atomic.LoadInt64(&connectionAttempts) / int64(captureDuration/time.Second)
 
 	assert.Less(t, attemptsPerSecond, int64(50))
 }
@@ -677,7 +677,7 @@ func (h *ChanHandler) Sub(ctx context.Context, i int, eq int) (<-chan int, error
 				fmt.Println("ctxdone1", i, eq)
 				return
 			case <-wait:
-				fmt.Println("CONSUMED WAIT: ", i)
+				//fmt.Println("CONSUMED WAIT: ", i)
 			}
 
 			n += i
@@ -835,10 +835,11 @@ func TestChanServerClose(t *testing.T) {
 
 	tctx, tcancel := context.WithCancel(context.Background())
 
-	testServ := httptest.NewServer(rpcServer)
+	testServ := httptest.NewUnstartedServer(rpcServer)
 	testServ.Config.ConnContext = func(ctx context.Context, c net.Conn) context.Context {
 		return tctx
 	}
+	testServ.Start()
 
 	closer, err := NewClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "ChanHandler", &client, nil)
 	require.NoError(t, err)
@@ -966,10 +967,11 @@ func TestChanClientReceiveAll(t *testing.T) {
 
 	tctx, tcancel := context.WithCancel(context.Background())
 
-	testServ := httptest.NewServer(rpcServer)
+	testServ := httptest.NewUnstartedServer(rpcServer)
 	testServ.Config.ConnContext = func(ctx context.Context, c net.Conn) context.Context {
 		return tctx
 	}
+	testServ.Start()
 
 	closer, err := NewClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "ChanHandler", &client, nil)
 	require.NoError(t, err)
@@ -1005,6 +1007,11 @@ func TestChanClientReceiveAll(t *testing.T) {
 }
 
 func TestControlChanDeadlock(t *testing.T) {
+	_ = logging.SetLogLevel("rpc", "error")
+	defer func() {
+		_ = logging.SetLogLevel("rpc", "debug")
+	}()
+
 	for r := 0; r < 20; r++ {
 		testControlChanDeadlock(t)
 	}

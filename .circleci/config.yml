@@ -12,6 +12,11 @@ jobs:
     steps:
       - checkout
       - run: go test -v -timeout 10m ./...
+  test-race:
+    executor: golang
+    steps:
+      - checkout
+      - run: go test -race -v -timeout 10m ./...
   mod-tidy-check:
     executor: golang
     steps:
@@ -42,3 +47,4 @@ workflows:
       - lint-check
       - gofmt-check
       - test
+      - test-race
