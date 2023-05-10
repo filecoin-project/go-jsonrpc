@@ -166,6 +166,12 @@ func httpClient(ctx context.Context, addr string, namespace string, outs []inter
 		if err != nil {
 			return clientResponse{}, &RPCConnectionError{err}
 		}
+
+		// may be fail
+		if httpResp.StatusCode >= http.StatusBadRequest {
+			return clientResponse{}, xerrors.Errorf("request failed, http status %s", httpResp.Status)
+		}
+
 		defer httpResp.Body.Close()
 
 		var resp clientResponse
