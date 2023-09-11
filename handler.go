@@ -110,6 +110,26 @@ type response struct {
 	Error   *respError  `json:"error,omitempty"`
 }
 
+func (r response) MarshalJSON() ([]byte, error) {
+	// Result field MUST NOT exist if there was an error invoking the method.
+	// Result field is REQUIRED on success.
+	type Alias response
+	if r.Error != nil {
+		return json.Marshal(&struct {
+			*Alias
+			Result interface{} `json:"result,omitempty"`
+		}{
+			Alias: (*Alias)(&r),
+		})
+	}
+	return json.Marshal(&struct {
+		*Alias
+		Result interface{} `json:"result"`
+	}{
+		Alias: (*Alias)(&r),
+	})
+}
+
 type handler struct {
 	methods map[string]methodHandler
 	errors  *Errors
