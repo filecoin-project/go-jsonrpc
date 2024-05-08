@@ -167,8 +167,9 @@ func httpClient(ctx context.Context, addr string, namespace string, outs []inter
 			return clientResponse{}, &RPCConnectionError{err}
 		}
 
-		// may be fail
-		if httpResp.StatusCode >= http.StatusBadRequest {
+		// likely a failure outside of our control and ability to inspect; jsonrpc server only ever
+		// returns json format errors with either a StatusBadRequest or a StatusInternalServerError
+		if httpResp.StatusCode > http.StatusBadRequest && httpResp.StatusCode != http.StatusInternalServerError {
 			return clientResponse{}, xerrors.Errorf("request failed, http status %s", httpResp.Status)
 		}
 

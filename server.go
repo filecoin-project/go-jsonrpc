@@ -109,9 +109,9 @@ func rpcError(wf func(func(io.Writer)), req *request, code ErrorCode, err error)
 	wf(func(w io.Writer) {
 		if hw, ok := w.(http.ResponseWriter); ok {
 			if code == rpcInvalidRequest {
-				hw.WriteHeader(400)
+				hw.WriteHeader(http.StatusBadRequest)
 			} else {
-				hw.WriteHeader(500)
+				hw.WriteHeader(http.StatusInternalServerError)
 			}
 		}
 
