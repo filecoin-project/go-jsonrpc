@@ -104,10 +104,30 @@ func (e *respError) val(errors *Errors) reflect.Value {
 }
 
 type response struct {
-	Jsonrpc string      `json:"jsonrpc"`
-	Result  interface{} `json:"result,omitempty"`
-	ID      interface{} `json:"id"`
-	Error   *respError  `json:"error,omitempty"`
+	Jsonrpc string
+	Result  interface{}
+	ID      interface{}
+	Error   *respError
+}
+
+func (r response) MarshalJSON() ([]byte, error) {
+	// Custom marshal logic as per JSON-RPC 2.0 spec:
+	// > `result`:
+	// > This member is REQUIRED on success.
+	// > This member MUST NOT exist if there was an error invoking the method.
+	//
+	// > `error`:
+	// > This member is REQUIRED on error.
+	// > This member MUST NOT exist if there was no error triggered during invocation.
+	data := make(map[string]interface{})
+	data["jsonrpc"] = r.Jsonrpc
+	data["id"] = r.ID
+	if r.Error != nil {
+		data["error"] = r.Error
+	} else {
+		data["result"] = r.Result
+	}
+	return json.Marshal(data)
 }
 
 type handler struct {
