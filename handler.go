@@ -119,30 +119,15 @@ func (r response) MarshalJSON() ([]byte, error) {
 	// > `error`:
 	// > This member is REQUIRED on error.
 	// > This member MUST NOT exist if there was no error triggered during invocation.
+	data := make(map[string]interface{})
+	data["jsonrpc"] = r.Jsonrpc
+	data["id"] = r.ID
 	if r.Error != nil {
-		// If there's an error, exclude result
-		type responseWithoutResult struct {
-			Jsonrpc string      `json:"jsonrpc"`
-			ID      interface{} `json:"id"`
-			Error   *respError  `json:"error"`
-		}
-		return json.Marshal(&responseWithoutResult{
-			Jsonrpc: r.Jsonrpc,
-			ID:      r.ID,
-			Error:   r.Error,
-		})
+		data["error"] = r.Error
+	} else {
+		data["result"] = r.Result
 	}
-
-	type responseWithResult struct {
-		Jsonrpc string      `json:"jsonrpc"`
-		Result  interface{} `json:"result"`
-		ID      interface{} `json:"id"`
-	}
-	return json.Marshal(&responseWithResult{
-		Jsonrpc: r.Jsonrpc,
-		Result:  r.Result,
-		ID:      r.ID,
-	})
+	return json.Marshal(data)
 }
 
 type handler struct {
