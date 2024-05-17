@@ -1,6 +1,6 @@
 module github.com/filecoin-project/go-jsonrpc
 
-go 1.18
+go 1.21
 
 require (
 	github.com/google/uuid v1.1.1
