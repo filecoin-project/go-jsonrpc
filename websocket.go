@@ -630,15 +630,17 @@ func (c *wsConn) tryReconnect(ctx context.Context) bool {
 		var conn *websocket.Conn
 		for conn == nil {
 			time.Sleep(c.reconnectBackoff.next(attempts))
+			if ctx.Err() != nil {
+				return
+			}
 			var err error
 			if conn, err = c.connFactory(); err != nil {
 				log.Debugw("websocket connection retry failed", "error", err)
 			}
 			select {
 			case <-ctx.Done():
-				break
+				return
 			default:
-				continue
 			}
 			attempts++
 		}
