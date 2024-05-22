@@ -3,7 +3,6 @@ package httpio
 import (
 	"context"
 	"io"
-	"io/ioutil"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -18,7 +17,7 @@ type ReaderHandler struct {
 }
 
 func (h *ReaderHandler) ReadAll(ctx context.Context, r io.Reader) ([]byte, error) {
-	return ioutil.ReadAll(r)
+	return io.ReadAll(r)
 }
 
 func (h *ReaderHandler) ReadUrl(ctx context.Context, u string) (string, error) {

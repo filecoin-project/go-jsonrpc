@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -112,7 +111,7 @@ func TestRawRequests(t *testing.T) {
 			res, err := http.Post(testServ.URL, "application/json", strings.NewReader(req))
 			require.NoError(t, err)
 
-			b, err := ioutil.ReadAll(res.Body)
+			b, err := io.ReadAll(res.Body)
 			require.NoError(t, err)
 
 			expectedResp, err := removeSpaces(resp)
@@ -1076,7 +1075,7 @@ type InterfaceHandler struct {
 }
 
 func (h *InterfaceHandler) ReadAll(ctx context.Context, r io.Reader) ([]byte, error) {
-	return ioutil.ReadAll(r)
+	return io.ReadAll(r)
 }
 
 func TestInterfaceHandler(t *testing.T) {
