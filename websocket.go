@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"reflect"
 	"sync"
@@ -476,7 +475,7 @@ func (c *wsConn) handleCall(ctx context.Context, frame frame) {
 	ctx, cancel := context.WithCancel(ctx)
 
 	nextWriter := func(cb func(io.Writer)) {
-		cb(ioutil.Discard)
+		cb(io.Discard)
 	}
 	done := func(keepCtx bool) {
 		if !keepCtx {
