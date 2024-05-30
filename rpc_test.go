@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -1248,7 +1249,11 @@ func TestIDHandling(t *testing.T) {
 		expect    interface{}
 		expectErr bool
 	}{
-		{`{"id":"8116d306-56cc-4637-9dd7-39ce1548a5a0","jsonrpc":"2.0","method":"eth_blockNumber","params":[]}`, "8116d306-56cc-4637-9dd7-39ce1548a5a0", false},
+		{
+			`{"id":"8116d306-56cc-4637-9dd7-39ce1548a5a0","jsonrpc":"2.0","method":"eth_blockNumber","params":[]}`,
+			"8116d306-56cc-4637-9dd7-39ce1548a5a0",
+			false,
+		},
 		{`{"id":1234,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]}`, float64(1234), false},
 		{`{"id":null,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]}`, nil, false},
 		{`{"id":1234.0,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]}`, 1234.0, false},
@@ -1710,4 +1715,72 @@ func TestNewCustomClient(t *testing.T) {
 	n := client.AddGet(3)
 	require.Equal(t, 13, n)
 	require.Equal(t, int32(13), serverHandler.n)
+}
+
+func TestReverseCallWithCustomSeparator(t *testing.T) {
+	// setup server
+
+	rpcServer := NewServer(WithNamespaceSeparator("_"))
+	rpcServer.Register("Server", &RawParamHandler{})
+
+	// httptest stuff
+	testServ := httptest.NewServer(rpcServer)
+	defer testServ.Close()
+
+	// setup client
+
+	var client struct {
+		Call func(ctx context.Context, ps RawParams) error `rpc_method:"Server_Call"`
+	}
+	closer, err := NewMergeClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "Server", []interface{}{
+		&client,
+	}, nil)
+	require.NoError(t, err)
+
+	// do the call!
+
+	e := client.Call(context.Background(), []byte(`{"I": 1}`))
+	require.NoError(t, e)
+
+	closer()
+}
+
+type MethodTransformedHandler struct{}
+
+func (h *RawParamHandler) CallSomethingInSnakeCase(ctx context.Context, v int) (int, error) {
+	return v + 1, nil
+}
+
+func TestCallWithMethodTransformer(t *testing.T) {
+	// setup server
+
+	var matchFirstCap = regexp.MustCompile("(.)([A-Z][a-z]+)")
+	var matchAllCap = regexp.MustCompile("([a-z0-9])([A-Z])")
+
+	rpcServer := NewServer(WithMethodTransformer(func(method string) string {
+		snake := matchFirstCap.ReplaceAllString(method, "${1}_${2}")
+		snake = matchAllCap.ReplaceAllString(snake, "${1}_${2}")
+		return strings.ToLower(snake)
+	}))
+	rpcServer.Register("Raw", &RawParamHandler{})
+
+	// httptest stuff
+	testServ := httptest.NewServer(rpcServer)
+	defer testServ.Close()
+
+	// setup client
+	var client struct {
+		Call func(ctx context.Context, v int) (int, error) `rpc_method:"Raw.call_something_in_snake_case"`
+	}
+	closer, err := NewMergeClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "Raw", []interface{}{
+		&client,
+	}, nil)
+	require.NoError(t, err)
+
+	// this will block if it's not sent as a notification
+	n, err := client.Call(context.Background(), 6)
+	require.NoError(t, err)
+	require.Equal(t, 7, n)
+
+	closer()
 }

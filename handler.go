@@ -77,7 +77,10 @@ type handler struct {
 
 	paramDecoders map[reflect.Type]ParamDecoder
 
-	tracer Tracer
+	methodCaseTransformer MethodCaseTransformer
+
+	tracer    Tracer
+	separator string
 }
 
 type Tracer func(method string, params []reflect.Value, results []reflect.Value, err error)
@@ -90,9 +93,12 @@ func makeHandler(sc ServerConfig) *handler {
 		aliasedMethods: map[string]string{},
 		paramDecoders:  sc.paramDecoders,
 
+		methodCaseTransformer: sc.methodCaseTransformer,
+
 		maxRequestSize: sc.maxRequestSize,
 
-		tracer: sc.tracer,
+		tracer:    sc.tracer,
+		separator: sc.separator,
 	}
 }
 
@@ -125,8 +131,11 @@ func (s *handler) register(namespace string, r interface{}) {
 		}
 
 		valOut, errOut, _ := processFuncOut(funcType)
+		if s.methodCaseTransformer != nil {
+			method.Name = s.methodCaseTransformer(method.Name)
+		}
 
-		s.methods[namespace+"."+method.Name] = methodHandler{
+		s.methods[namespace+s.separator+method.Name] = methodHandler{
 			paramReceivers: recvs,
 			nParams:        ins,
 
@@ -303,7 +312,14 @@ func (s *handler) createError(err error) *JSONRPCError {
 	return out
 }
 
-func (s *handler) handle(ctx context.Context, req request, w func(func(io.Writer)), rpcError rpcErrFunc, done func(keepCtx bool), chOut chanOut) {
+func (s *handler) handle(
+	ctx context.Context,
+	req request,
+	w func(func(io.Writer)),
+	rpcError rpcErrFunc,
+	done func(keepCtx bool),
+	chOut chanOut,
+) {
 	// Not sure if we need to sanitize the incoming req.Method or not.
 	ctx, span := s.getSpan(ctx, req)
 	ctx, _ = tag.New(ctx, tag.Insert(metrics.RPCMethod, req.Method))
