@@ -244,6 +244,53 @@ if err := client.Call(); err != nil {
 }
 ```
 
+## Options 
+
+
+### Using `WithNamespaceSeparator`
+```go 
+func main() {
+    // create a new server instance with a custom namespace separator
+    rpcServer := jsonrpc.NewServer(jsonrpc.WithNamespaceSeparator("_"))
+    
+    // create a handler instance and register it
+    serverHandler := &SimpleServerHandler{}
+    rpcServer.Register("SimpleServerHandler", serverHandler)
+    
+    // serve the api
+    testServ := httptest.NewServer(rpcServer)
+    defer testServ.Close()
+    
+    fmt.Println("URL: ", "ws://"+testServ.Listener.Addr().String())
+
+    // rpc method becomes SimpleServerHandler_AddGet
+    
+    [..do other app stuff / wait..]
+}
+```
+
+### Using `WithMethodTransformer`
+```go
+func main() {
+    // create a new server instance with a custom method transformer
+    rpcServer := jsonrpc.NewServer(jsonrpc.WithMethodTransformer(strcase.ToSnake))
+    
+    // create a handler instance and register it
+    serverHandler := &SimpleServerHandler{}
+    rpcServer.Register("SimpleServerHandler", serverHandler)
+    
+    // serve the api
+    testServ := httptest.NewServer(rpcServer)
+    defer testServ.Close()
+    
+    fmt.Println("URL: ", "ws://"+testServ.Listener.Addr().String())
+
+    // rpc method becomes SimpleServerHandler.add_get
+    
+    [..do other app stuff / wait..]
+}
+```
+
 ## Contribute
 
 PRs are welcome!
