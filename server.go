@@ -104,6 +104,10 @@ func (s *RPCServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.handleReader(ctx, r.Body, w, rpcError)
 }
 
+func (s *RPCServer) HandleRequest(ctx context.Context, r io.Reader, w io.Writer) {
+	s.handleReader(ctx, r, w, rpcError)
+}
+
 func rpcError(wf func(func(io.Writer)), req *request, code ErrorCode, err error) {
 	log.Errorf("RPC Error: %s", err)
 	wf(func(w io.Writer) {
