@@ -131,6 +131,49 @@ type _ interface {
 
 ```
 
+### Custom Transport Feature
+The go-jsonrpc library supports creating clients with custom transport mechanisms (e.g. use for IPC). This allows for greater flexibility in how requests are sent and received, enabling the use of custom protocols, special handling of requests, or integration with other systems.
+
+#### Example Usage of Custom Transport
+
+Here is an example demonstrating how to create a custom client with a custom transport mechanism:
+    
+```go
+// Setup server
+serverHandler := &SimpleServerHandler{} // some type with methods
+
+rpcServer := jsonrpc.NewServer()
+rpcServer.Register("SimpleServerHandler", serverHandler)
+
+// Custom doRequest function
+doRequest := func(ctx context.Context, body []byte) (io.ReadCloser, error) {
+    reader := bytes.NewReader(body)
+    pr, pw := io.Pipe()
+    go func() {
+        defer pw.Close()
+        rpcServer.HandleRequest(ctx, reader, pw) // handle the rpc frame
+    }()
+    return pr, nil
+}
+
+var client struct {
+    Add    func(int) error
+}
+
+// Create custom client
+closer, err := jsonrpc.NewCustomClient("SimpleServerHandler", []interface{}{&client}, doRequest)
+if err != nil {
+    log.Fatalf("Failed to create client: %v", err)
+}
+defer closer()
+
+// Use the client
+if err := client.Add(10); err != nil {
+    log.Fatalf("Failed to call Add: %v", err)
+}
+fmt.Printf("Current value: %d\n", client.AddGet(5))
+```
+
 ## Contribute
 
 PRs are welcome!

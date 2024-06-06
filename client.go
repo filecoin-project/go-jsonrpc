@@ -152,6 +152,10 @@ func NewCustomClient(namespace string, outs []interface{}, doRequest func(ctx co
 			return clientResponse{}, xerrors.Errorf("marshalling request: %w", err)
 		}
 
+		if ctx == nil {
+			ctx = context.Background()
+		}
+
 		rawResp, err := doRequest(ctx, b)
 		if err != nil {
 			return clientResponse{}, xerrors.Errorf("doRequest failed: %w", err)
