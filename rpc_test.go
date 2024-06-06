@@ -1,6 +1,7 @@
 package jsonrpc
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1650,4 +1651,44 @@ func TestBigResult(t *testing.T) {
 	require.NoError(t, err)
 
 	fmt.Println("done")
+}
+
+func TestNewCustomClient(t *testing.T) {
+	// Setup server
+	serverHandler := &SimpleServerHandler{}
+	rpcServer := NewServer()
+	rpcServer.Register("SimpleServerHandler", serverHandler)
+
+	// Custom doRequest function
+	doRequest := func(ctx context.Context, body []byte) (io.ReadCloser, error) {
+		reader := bytes.NewReader(body)
+		pr, pw := io.Pipe()
+		go func() {
+			defer pw.Close()
+			rpcServer.HandleRequest(ctx, reader, pw)
+		}()
+		return pr, nil
+	}
+
+	var client struct {
+		Add    func(int) error
+		AddGet func(int) int
+	}
+
+	// Create custom client
+	closer, err := NewCustomClient("SimpleServerHandler", []interface{}{&client}, doRequest)
+	require.NoError(t, err)
+	defer closer()
+
+	// Add(int) error
+	require.NoError(t, client.Add(10))
+	require.Equal(t, int32(10), serverHandler.n)
+
+	err = client.Add(-3546)
+	require.EqualError(t, err, "test")
+
+	// AddGet(int) int
+	n := client.AddGet(3)
+	require.Equal(t, 13, n)
+	require.Equal(t, int32(13), serverHandler.n)
 }

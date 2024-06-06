@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -127,6 +128,66 @@ func NewMergeClient(ctx context.Context, addr string, namespace string, outs []i
 		return nil, xerrors.Errorf("unknown url scheme '%s'", u.Scheme)
 	}
 
+}
+
+// NewCustomClient is like NewMergeClient in single-request (http) mode, except it allows for a custom doRequest function
+func NewCustomClient(namespace string, outs []interface{}, doRequest func(ctx context.Context, body []byte) (io.ReadCloser, error), opts ...Option) (ClientCloser, error) {
+	config := defaultConfig()
+	for _, o := range opts {
+		o(&config)
+	}
+
+	c := client{
+		namespace:     namespace,
+		paramEncoders: config.paramEncoders,
+		errors:        config.errors,
+	}
+
+	stop := make(chan struct{})
+	c.exiting = stop
+
+	c.doRequest = func(ctx context.Context, cr clientRequest) (clientResponse, error) {
+		b, err := json.Marshal(&cr.req)
+		if err != nil {
+			return clientResponse{}, xerrors.Errorf("marshalling request: %w", err)
+		}
+
+		if ctx == nil {
+			ctx = context.Background()
+		}
+
+		rawResp, err := doRequest(ctx, b)
+		if err != nil {
+			return clientResponse{}, xerrors.Errorf("doRequest failed: %w", err)
+		}
+
+		defer rawResp.Close()
+
+		var resp clientResponse
+		if cr.req.ID != nil { // non-notification
+			if err := json.NewDecoder(rawResp).Decode(&resp); err != nil {
+				return clientResponse{}, xerrors.Errorf("unmarshaling response: %w", err)
+			}
+
+			if resp.ID, err = normalizeID(resp.ID); err != nil {
+				return clientResponse{}, xerrors.Errorf("failed to response ID: %w", err)
+			}
+
+			if resp.ID != cr.req.ID {
+				return clientResponse{}, xerrors.New("request and response id didn't match")
+			}
+		}
+
+		return resp, nil
+	}
+
+	if err := c.provide(outs); err != nil {
+		return nil, err
+	}
+
+	return func() {
+		close(stop)
+	}, nil
 }
 
 func httpClient(ctx context.Context, addr string, namespace string, outs []interface{}, requestHeader http.Header, config Config) (ClientCloser, error) {

@@ -131,6 +131,119 @@ type _ interface {
 
 ```
 
+### Custom Transport Feature
+The go-jsonrpc library supports creating clients with custom transport mechanisms (e.g. use for IPC). This allows for greater flexibility in how requests are sent and received, enabling the use of custom protocols, special handling of requests, or integration with other systems.
+
+#### Example Usage of Custom Transport
+
+Here is an example demonstrating how to create a custom client with a custom transport mechanism:
+    
+```go
+// Setup server
+serverHandler := &SimpleServerHandler{} // some type with methods
+
+rpcServer := jsonrpc.NewServer()
+rpcServer.Register("SimpleServerHandler", serverHandler)
+
+// Custom doRequest function
+doRequest := func(ctx context.Context, body []byte) (io.ReadCloser, error) {
+    reader := bytes.NewReader(body)
+    pr, pw := io.Pipe()
+    go func() {
+        defer pw.Close()
+        rpcServer.HandleRequest(ctx, reader, pw) // handle the rpc frame
+    }()
+    return pr, nil
+}
+
+var client struct {
+    Add    func(int) error
+}
+
+// Create custom client
+closer, err := jsonrpc.NewCustomClient("SimpleServerHandler", []interface{}{&client}, doRequest)
+if err != nil {
+    log.Fatalf("Failed to create client: %v", err)
+}
+defer closer()
+
+// Use the client
+if err := client.Add(10); err != nil {
+    log.Fatalf("Failed to call Add: %v", err)
+}
+fmt.Printf("Current value: %d\n", client.AddGet(5))
+```
+
+### Reverse Calling Feature
+The go-jsonrpc library also supports reverse calling, where the server can make calls to the client. This is useful in scenarios where the server needs to notify or request data from the client.
+
+NOTE: Reverse calling only works in websocket mode
+
+#### Example Usage of Reverse Calling
+
+Here is an example demonstrating how to set up reverse calling:
+
+```go
+// Define the client handler interface
+type ClientHandler struct {
+    CallOnClient func(int) (int, error)
+}
+
+// Define the server handler
+type ServerHandler struct {}
+
+func (h *ServerHandler) Call(ctx context.Context) error {
+    revClient, ok := jsonrpc.ExtractReverseClient[ClientHandler](ctx)
+    if !ok {
+        return fmt.Errorf("no reverse client")
+    }
+
+    result, err := revClient.CallOnClient(7) // Multiply by 2 on client
+    if err != nil {
+        return fmt.Errorf("call on client: %w", err)
+    }
+
+    if result != 14 {
+        return fmt.Errorf("unexpected result: %d", result)
+    }
+
+    return nil
+}
+
+// Define client handler
+type RevCallTestClientHandler struct {
+}
+
+func (h *RevCallTestClientHandler) CallOnClient(a int) (int, error) {
+    return a * 2, nil
+}
+
+// Setup server with reverse client capability
+rpcServer := jsonrpc.NewServer(jsonrpc.WithReverseClient[ClientHandler]("Client"))
+rpcServer.Register("ServerHandler", &ServerHandler{})
+
+testServ := httptest.NewServer(rpcServer)
+defer testServ.Close()
+
+// Setup client with reverse call handler
+var client struct {
+    Call func() error
+}
+
+closer, err := jsonrpc.NewMergeClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "ServerHandler", []interface{}{
+    &client,
+}, nil, jsonrpc.WithClientHandler("Client", &RevCallTestClientHandler{}))
+if err != nil {
+    log.Fatalf("Failed to create client: %v", err)
+}
+defer closer()
+
+// Make a call from the client to the server, which will trigger a reverse call
+if err := client.Call(); err != nil {
+    log.Fatalf("Failed to call server: %v", err)
+}
+```
+
 ## Contribute
 
 PRs are welcome!
