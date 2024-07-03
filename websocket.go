@@ -1,7 +1,6 @@
 package jsonrpc
 
 import (
-	"container/list"
 	"context"
 	"encoding/json"
 	"errors"
@@ -38,43 +37,6 @@ type frame struct {
 	Error  *respError      `json:"error,omitempty"`
 }
 
-type methodQueue struct {
-	frames *list.List
-	limit  int
-}
-
-type methodCount struct {
-	method string
-	count  int
-}
-
-func newMethodQueue(limit int) *methodQueue {
-	return &methodQueue{
-		frames: list.New(),
-		limit:  limit,
-	}
-}
-
-func (fq *methodQueue) Add(m string) {
-	if fq.frames.Len() >= fq.limit {
-		fq.frames.Remove(fq.frames.Front()) // remove oldest
-	}
-	fq.frames.PushBack(m)
-}
-
-func (fq methodQueue) MethodCounts() []methodCount {
-	counts := make(map[string]int)
-	for e := fq.frames.Front(); e != nil; e = e.Next() {
-		counts[e.Value.(string)]++
-	}
-
-	var out []methodCount
-	for k, v := range counts {
-		out = append(out, methodCount{method: k, count: v})
-	}
-	return out
-}
-
 type outChanReg struct {
 	reqID interface{}
 
@@ -87,9 +49,6 @@ type reqestHandler interface {
 }
 
 type wsConn struct {
-	// chanCtr is a counter used for identifying output channels on the server side
-	chanCtr uint64
-
 	// outside params
 	conn             *websocket.Conn
 	connFactory      func() (*websocket.Conn, error)
@@ -109,8 +68,7 @@ type wsConn struct {
 
 	readError chan error
 
-	frameExecQueue chan frame
-	methodQueue    *methodQueue
+	frameExecQueue chan []byte
 
 	// outgoing messages
 	writeLk sync.Mutex
@@ -134,6 +92,9 @@ type wsConn struct {
 	handlingLk sync.Mutex
 
 	spawnOutChanHandlerOnce sync.Once
+
+	// chanCtr is a counter used for identifying output channels on the server side
+	chanCtr uint64
 
 	registerCh chan outChanReg
 }
@@ -711,27 +672,9 @@ func (c *wsConn) readFrame(ctx context.Context, r io.Reader) {
 		return
 	}
 
-	var frame frame
-	if err := json.Unmarshal(buf, &frame); err != nil {
-		log.Warnw("failed to unmarshal frame", "error", err)
-		// todo send invalid request response
-	} else {
-		var err error
-		frame.ID, err = normalizeID(frame.ID)
-		if err != nil {
-			log.Warnw("failed to normalize frame id", "error", err)
-			// todo send invalid request response
-		} else {
-			c.frameExecQueue <- frame
-			c.methodQueue.Add(frame.Method)
-			if len(c.frameExecQueue) > int(float64(cap(c.frameExecQueue))*2/3) {
-				msgParams := []interface{}{"queued", len(c.frameExecQueue), "capacity", cap(c.frameExecQueue)}
-				for _, methodCount := range c.methodQueue.MethodCounts() {
-					msgParams = append(msgParams, fmt.Sprintf("method<%s>", methodCount.method), methodCount.count)
-				}
-				log.Warnw("frame executor queue is backlogged", msgParams...)
-			}
-		}
+	c.frameExecQueue <- buf
+	if len(c.frameExecQueue) > 2*cap(c.frameExecQueue)/3 { // warn at 2/3 capacity
+		log.Warnw("frame executor queue is backlogged", "queued", len(c.frameExecQueue), "cap", cap(c.frameExecQueue))
 	}
 
 	// got the whole frame, can start reading the next one in background
@@ -743,7 +686,22 @@ func (c *wsConn) frameExecutor(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case frame := <-c.frameExecQueue:
+		case buf := <-c.frameExecQueue:
+			var frame frame
+			if err := json.Unmarshal(buf, &frame); err != nil {
+				log.Warnw("failed to unmarshal frame", "error", err)
+				// todo send invalid request response
+				continue
+			}
+
+			var err error
+			frame.ID, err = normalizeID(frame.ID)
+			if err != nil {
+				log.Warnw("failed to normalize frame id", "error", err)
+				// todo send invalid request response
+				continue
+			}
+
 			c.handleFrame(ctx, frame)
 		}
 	}
@@ -757,8 +715,7 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 
 	c.incoming = make(chan io.Reader)
 	c.readError = make(chan error, 1)
-	c.frameExecQueue = make(chan frame, maxQueuedFrames)
-	c.methodQueue = newMethodQueue(maxQueuedFrames)
+	c.frameExecQueue = make(chan []byte, maxQueuedFrames)
 	c.inflight = map[interface{}]clientRequest{}
 	c.handling = map[interface{}]context.CancelFunc{}
 	c.chanHandlers = map[uint64]*chanHandler{}
