@@ -790,6 +790,9 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 			if !c.tryReconnect(ctx) {
 				return // failed to reconnect
 			}
+		case <-ctx.Done():
+			log.Debugw("context cancelled", "lastAction", action, "time", time.Since(start))
+			return
 		case req := <-c.requests:
 			action = fmt.Sprintf("send-request(%s,%v)", req.req.Method, req.req.ID)
 
