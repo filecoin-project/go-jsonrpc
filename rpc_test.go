@@ -1604,7 +1604,7 @@ func (h *BigCallTestServerHandler) Ch(ctx context.Context) (<-chan int, error) {
 func TestBigResult(t *testing.T) {
 	if os.Getenv("I_HAVE_A_LOT_OF_MEMORY_AND_TIME") != "1" {
 		// needs ~40GB of memory and ~4 minutes to run
-		t.Skip("skipping test due to requiced resources, set I_HAVE_A_LOT_OF_MEMORY_AND_TIME=1 to run")
+		t.Skip("skipping test due to required resources, set I_HAVE_A_LOT_OF_MEMORY_AND_TIME=1 to run")
 	}
 
 	// setup server
