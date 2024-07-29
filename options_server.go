@@ -21,6 +21,7 @@ type ServerConfig struct {
 	errors        *Errors
 
 	reverseClientBuilder func(context.Context, *wsConn) (context.Context, error)
+	Logger               Logger
 }
 
 type ServerOption func(c *ServerConfig)
@@ -55,6 +56,12 @@ func WithServerErrors(es Errors) ServerOption {
 func WithServerPingInterval(d time.Duration) ServerOption {
 	return func(c *ServerConfig) {
 		c.pingInterval = d
+	}
+}
+
+func WithLogger(l Logger) ServerOption {
+	return func(c *ServerConfig) {
+		c.Logger = l
 	}
 }
 
