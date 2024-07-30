@@ -21,7 +21,7 @@ type ServerConfig struct {
 	errors        *Errors
 
 	reverseClientBuilder func(context.Context, *wsConn) (context.Context, error)
-	Logger               Tracer
+	tracer               Tracer
 }
 
 type ServerOption func(c *ServerConfig)
@@ -63,7 +63,7 @@ func WithServerPingInterval(d time.Duration) ServerOption {
 // This is useful for debugging a client-server interaction.
 func WithTracer(l Tracer) ServerOption {
 	return func(c *ServerConfig) {
-		c.Logger = l
+		c.tracer = l
 	}
 }
 
