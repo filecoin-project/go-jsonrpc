@@ -21,6 +21,7 @@ type ServerConfig struct {
 	errors        *Errors
 
 	reverseClientBuilder func(context.Context, *wsConn) (context.Context, error)
+	tracer               Tracer
 }
 
 type ServerOption func(c *ServerConfig)
@@ -55,6 +56,14 @@ func WithServerErrors(es Errors) ServerOption {
 func WithServerPingInterval(d time.Duration) ServerOption {
 	return func(c *ServerConfig) {
 		c.pingInterval = d
+	}
+}
+
+// WithTracer allows the instantiator to trace the method calls and results.
+// This is useful for debugging a client-server interaction.
+func WithTracer(l Tracer) ServerOption {
+	return func(c *ServerConfig) {
+		c.tracer = l
 	}
 }
 

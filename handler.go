@@ -141,7 +141,11 @@ type handler struct {
 	aliasedMethods map[string]string
 
 	paramDecoders map[reflect.Type]ParamDecoder
+
+	tracer Tracer
 }
+
+type Tracer func(method string, params []reflect.Value, results []reflect.Value, err error)
 
 func makeHandler(sc ServerConfig) *handler {
 	return &handler{
@@ -445,12 +449,18 @@ func (s *handler) handle(ctx context.Context, req request, w func(func(io.Writer
 	if err != nil {
 		rpcError(w, &req, 0, xerrors.Errorf("fatal error calling '%s': %w", req.Method, err))
 		stats.Record(ctx, metrics.RPCRequestError.M(1))
+		if s.tracer != nil {
+			s.tracer(req.Method, callParams, nil, err)
+		}
 		return
 	}
 	if req.ID == nil {
 		return // notification
 	}
 
+	if s.tracer != nil {
+		s.tracer(req.Method, callParams, callResult, nil)
+	}
 	// /////////////////
 
 	resp := response{
