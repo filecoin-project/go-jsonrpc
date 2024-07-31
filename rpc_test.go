@@ -27,7 +27,7 @@ import (
 )
 
 func init() {
-	if os.Getenv("GOLOG_LOG_LEVEL") == "" {
+	if _, exists := os.LookupEnv("GOLOG_LOG_LEVEL"); !exists {
 		if err := logging.SetLogLevel("rpc", "DEBUG"); err != nil {
 			panic(err)
 		}
@@ -1024,7 +1024,7 @@ func TestChanClientReceiveAll(t *testing.T) {
 }
 
 func TestControlChanDeadlock(t *testing.T) {
-	if os.Getenv("GOLOG_LOG_LEVEL") == "" {
+	if _, exists := os.LookupEnv("GOLOG_LOG_LEVEL"); !exists {
 		_ = logging.SetLogLevel("rpc", "error")
 		defer func() {
 			_ = logging.SetLogLevel("rpc", "DEBUG")
