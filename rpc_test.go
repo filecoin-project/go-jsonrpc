@@ -27,8 +27,10 @@ import (
 )
 
 func init() {
-	if err := logging.SetLogLevel("rpc", "DEBUG"); err != nil {
-		panic(err)
+	if os.Getenv("GOLOG_LOG_LEVEL") == "" {
+		if err := logging.SetLogLevel("rpc", "DEBUG"); err != nil {
+			panic(err)
+		}
 	}
 
 	debugTrace = true
@@ -497,8 +499,9 @@ func TestParallelRPC(t *testing.T) {
 type CtxHandler struct {
 	lk sync.Mutex
 
-	cancelled bool
-	i         int
+	cancelled      bool
+	i              int
+	connectionType ConnectionType
 }
 
 func (h *CtxHandler) Test(ctx context.Context) {
@@ -506,6 +509,7 @@ func (h *CtxHandler) Test(ctx context.Context) {
 	defer h.lk.Unlock()
 	timeout := time.After(300 * time.Millisecond)
 	h.i++
+	h.connectionType = GetConnectionType(ctx)
 
 	select {
 	case <-timeout:
@@ -543,6 +547,9 @@ func TestCtx(t *testing.T) {
 	if !serverHandler.cancelled {
 		t.Error("expected cancellation on the server side")
 	}
+	if serverHandler.connectionType != ConnectionTypeWS {
+		t.Error("wrong connection type")
+	}
 
 	serverHandler.cancelled = false
 
@@ -563,6 +570,9 @@ func TestCtx(t *testing.T) {
 
 	if serverHandler.cancelled || serverHandler.i != 2 {
 		t.Error("wrong serverHandler state")
+	}
+	if serverHandler.connectionType != ConnectionTypeWS {
+		t.Error("wrong connection type")
 	}
 
 	serverHandler.lk.Unlock()
@@ -598,6 +608,9 @@ func TestCtxHttp(t *testing.T) {
 	if !serverHandler.cancelled {
 		t.Error("expected cancellation on the server side")
 	}
+	if serverHandler.connectionType != ConnectionTypeHTTP {
+		t.Error("wrong connection type")
+	}
 
 	serverHandler.cancelled = false
 
@@ -618,6 +631,10 @@ func TestCtxHttp(t *testing.T) {
 
 	if serverHandler.cancelled || serverHandler.i != 2 {
 		t.Error("wrong serverHandler state")
+	}
+	// connection type should have switched to WS
+	if serverHandler.connectionType != ConnectionTypeWS {
+		t.Error("wrong connection type")
 	}
 
 	serverHandler.lk.Unlock()
@@ -1007,10 +1024,12 @@ func TestChanClientReceiveAll(t *testing.T) {
 }
 
 func TestControlChanDeadlock(t *testing.T) {
-	_ = logging.SetLogLevel("rpc", "error")
-	defer func() {
-		_ = logging.SetLogLevel("rpc", "debug")
-	}()
+	if os.Getenv("GOLOG_LOG_LEVEL") == "" {
+		_ = logging.SetLogLevel("rpc", "error")
+		defer func() {
+			_ = logging.SetLogLevel("rpc", "DEBUG")
+		}()
+	}
 
 	for r := 0; r < 20; r++ {
 		testControlChanDeadlock(t)
