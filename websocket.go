@@ -673,7 +673,7 @@ func (c *wsConn) readFrame(ctx context.Context, r io.Reader) {
 	}
 
 	c.frameExecQueue <- buf
-	if len(c.frameExecQueue) > cap(c.frameExecQueue)/2 {
+	if len(c.frameExecQueue) > 2*cap(c.frameExecQueue)/3 { // warn at 2/3 capacity
 		log.Warnw("frame executor queue is backlogged", "queued", len(c.frameExecQueue), "cap", cap(c.frameExecQueue))
 	}
 
