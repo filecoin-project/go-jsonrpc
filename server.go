@@ -20,6 +20,31 @@ const (
 	rpcInvalidParams  = -32602
 )
 
+// ConnectionType indicates the type of connection, this is set in the context and can be retrieved
+// with GetConnectionType.
+type ConnectionType string
+
+const (
+	// ConnectionTypeUnknown indicates that the connection type cannot be determined, likely because
+	// it hasn't passed through an RPCServer.
+	ConnectionTypeUnknown ConnectionType = "unknown"
+	// ConnectionTypeHTTP indicates that the connection is an HTTP connection.
+	ConnectionTypeHTTP ConnectionType = "http"
+	// ConnectionTypeWS indicates that the connection is a WebSockets connection.
+	ConnectionTypeWS ConnectionType = "websockets"
+)
+
+var connectionTypeCtxKey = &struct{ name string }{"jsonrpc-connection-type"}
+
+// GetConnectionType returns the connection type of the request if it was set by an RPCServer.
+// A connection type of ConnectionTypeUnknown means that the connection type was not set.
+func GetConnectionType(ctx context.Context) ConnectionType {
+	if v := ctx.Value(connectionTypeCtxKey); v != nil {
+		return v.(ConnectionType)
+	}
+	return ConnectionTypeUnknown
+}
+
 // RPCServer provides a jsonrpc 2.0 http server handler
 type RPCServer struct {
 	*handler
@@ -97,10 +122,12 @@ func (s *RPCServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	h := strings.ToLower(r.Header.Get("Connection"))
 	if strings.Contains(h, "upgrade") {
+		ctx = context.WithValue(ctx, connectionTypeCtxKey, ConnectionTypeWS)
 		s.handleWS(ctx, w, r)
 		return
 	}
 
+	ctx = context.WithValue(ctx, connectionTypeCtxKey, ConnectionTypeHTTP)
 	s.handleReader(ctx, r.Body, w, rpcError)
 }
 
