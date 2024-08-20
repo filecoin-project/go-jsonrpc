@@ -156,6 +156,8 @@ func makeHandler(sc ServerConfig) *handler {
 		paramDecoders:  sc.paramDecoders,
 
 		maxRequestSize: sc.maxRequestSize,
+
+		tracer: sc.tracer,
 	}
 }
 
