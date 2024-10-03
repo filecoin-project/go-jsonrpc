@@ -69,6 +69,7 @@ type respError struct {
 	Code    ErrorCode       `json:"code"`
 	Message string          `json:"message"`
 	Meta    json.RawMessage `json:"meta,omitempty"`
+	Data    json.RawMessage `json:"data,omitempty"`
 }
 
 func (e *respError) Error() string {
