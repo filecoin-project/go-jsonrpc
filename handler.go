@@ -356,6 +356,12 @@ func (s *handler) createError(err error) *respError {
 		}
 	}
 
+	if dataErr, ok := err.(interface{ ErrorData() interface{} }); ok {
+		if data, err := json.Marshal(dataErr.ErrorData()); err == nil {
+			out.Data = data
+		}
+	}
+
 	return out
 }
 
