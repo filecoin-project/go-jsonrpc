@@ -69,7 +69,7 @@ type respError struct {
 	Code    ErrorCode       `json:"code"`
 	Message string          `json:"message"`
 	Meta    json.RawMessage `json:"meta,omitempty"`
-	Data    json.RawMessage `json:"data,omitempty"`
+	Data    interface{}     `json:"data,omitempty"`
 }
 
 func (e *respError) Error() string {
@@ -105,10 +105,11 @@ func (e *respError) val(errors *Errors) reflect.Value {
 }
 
 type response struct {
-	Jsonrpc string
-	Result  interface{}
-	ID      interface{}
-	Error   *respError
+	Jsonrpc string      `json:"jsonrpc"`
+	Result  interface{} `json:"result,omitempty"`
+	ID      interface{} `json:"id"`
+	Error   *respError  `json:"error,omitempty"`
+	Data    interface{} `json:"data,omitempty"` // Add this line
 }
 
 func (r response) MarshalJSON() ([]byte, error) {
@@ -350,16 +351,16 @@ func (s *handler) createError(err error) *respError {
 	}
 
 	if m, ok := err.(marshalable); ok {
-		meta, err := m.MarshalJSON()
-		if err == nil {
+		meta, marshalErr := m.MarshalJSON()
+		if marshalErr == nil {
 			out.Meta = meta
+		} else {
+			log.Warnf("Failed to marshal error metadata: %v", marshalErr)
 		}
 	}
 
 	if dataErr, ok := err.(interface{ ErrorData() interface{} }); ok {
-		if data, err := json.Marshal(dataErr.ErrorData()); err == nil {
-			out.Data = data
-		}
+		out.Data = dataErr.ErrorData() // Directly assign the data
 	}
 
 	return out
@@ -517,6 +518,10 @@ func (s *handler) handle(ctx context.Context, req request, w func(func(io.Writer
 			}
 		} else {
 			resp.Result = res
+			// Add this block to include additional data in the response
+			if dataProvider, ok := res.(interface{ ResponseData() interface{} }); ok {
+				resp.Data = dataProvider.ResponseData()
+			}
 		}
 	}
 	if resp.Error != nil && nonZero {
