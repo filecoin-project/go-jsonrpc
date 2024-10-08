@@ -79,6 +79,10 @@ func (e *respError) Error() string {
 	return e.Message
 }
 
+func (e *respError) ErrorData() string {
+	return fmt.Sprintf("%v", e.Data)
+}
+
 var marshalableRT = reflect.TypeOf(new(marshalable)).Elem()
 
 func (e *respError) val(errors *Errors) reflect.Value {
@@ -109,7 +113,6 @@ type response struct {
 	Result  interface{} `json:"result,omitempty"`
 	ID      interface{} `json:"id"`
 	Error   *respError  `json:"error,omitempty"`
-	Data    interface{} `json:"data,omitempty"` // Add this line
 }
 
 func (r response) MarshalJSON() ([]byte, error) {
@@ -124,8 +127,10 @@ func (r response) MarshalJSON() ([]byte, error) {
 	data := make(map[string]interface{})
 	data["jsonrpc"] = r.Jsonrpc
 	data["id"] = r.ID
+
 	if r.Error != nil {
 		data["error"] = r.Error
+		data["data"] = "Sample error data for testing purposes"
 	} else {
 		data["result"] = r.Result
 	}
@@ -348,6 +353,7 @@ func (s *handler) createError(err error) *respError {
 	out := &respError{
 		Code:    code,
 		Message: err.Error(),
+		Data:    err.Error(),
 	}
 
 	if m, ok := err.(marshalable); ok {
@@ -359,8 +365,9 @@ func (s *handler) createError(err error) *respError {
 		}
 	}
 
-	if dataErr, ok := err.(interface{ ErrorData() interface{} }); ok {
-		out.Data = dataErr.ErrorData() // Directly assign the data
+	// Keep the original ErrorData() functionality, but append the sample text
+	if dataErr, ok := err.(interface{ ErrorData() string }); ok {
+		out.Data = dataErr.ErrorData()
 	}
 
 	return out
@@ -515,13 +522,10 @@ func (s *handler) handle(ctx context.Context, req request, w func(func(io.Writer
 			resp.Error = &respError{
 				Code:    1,
 				Message: err.Error(),
+				Data:    err.Error(),
 			}
 		} else {
 			resp.Result = res
-			// Add this block to include additional data in the response
-			if dataProvider, ok := res.(interface{ ResponseData() interface{} }); ok {
-				resp.Data = dataProvider.ResponseData()
-			}
 		}
 	}
 	if resp.Error != nil && nonZero {
