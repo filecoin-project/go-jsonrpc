@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"reflect"
@@ -69,6 +70,7 @@ type respError struct {
 	Code    ErrorCode       `json:"code"`
 	Message string          `json:"message"`
 	Meta    json.RawMessage `json:"meta,omitempty"`
+	Data    interface{}     `json:"data,omitempty"`
 }
 
 func (e *respError) Error() string {
@@ -76,6 +78,10 @@ func (e *respError) Error() string {
 		return fmt.Sprintf("RPC error (%d): %s", e.Code, e.Message)
 	}
 	return e.Message
+}
+
+func (e *respError) ErrorData() interface{} {
+	return e.Data
 }
 
 var marshalableRT = reflect.TypeOf(new(marshalable)).Elem()
@@ -104,10 +110,10 @@ func (e *respError) val(errors *Errors) reflect.Value {
 }
 
 type response struct {
-	Jsonrpc string
-	Result  interface{}
-	ID      interface{}
-	Error   *respError
+	Jsonrpc string      `json:"jsonrpc"`
+	Result  interface{} `json:"result,omitempty"`
+	ID      interface{} `json:"id"`
+	Error   *respError  `json:"error,omitempty"`
 }
 
 func (r response) MarshalJSON() ([]byte, error) {
@@ -119,9 +125,11 @@ func (r response) MarshalJSON() ([]byte, error) {
 	// > `error`:
 	// > This member is REQUIRED on error.
 	// > This member MUST NOT exist if there was no error triggered during invocation.
-	data := make(map[string]interface{})
-	data["jsonrpc"] = r.Jsonrpc
-	data["id"] = r.ID
+	data := map[string]interface{}{
+		"jsonrpc": r.Jsonrpc,
+		"id":      r.ID,
+	}
+
 	if r.Error != nil {
 		data["error"] = r.Error
 	} else {
@@ -349,10 +357,16 @@ func (s *handler) createError(err error) *respError {
 	}
 
 	if m, ok := err.(marshalable); ok {
-		meta, err := m.MarshalJSON()
-		if err == nil {
+		meta, marshalErr := m.MarshalJSON()
+		if marshalErr == nil {
 			out.Meta = meta
+		} else {
+			log.Warnf("Failed to marshal error metadata: %v", marshalErr)
 		}
+	}
+
+	if de, ok := err.(DataError); ok {
+		out.Data = de.ErrorData()
 	}
 
 	return out
@@ -504,10 +518,17 @@ func (s *handler) handle(ctx context.Context, req request, w func(func(io.Writer
 
 			log.Warnf("failed to setup channel in RPC call to '%s': %+v", req.Method, err)
 			stats.Record(ctx, metrics.RPCResponseError.M(1))
-			resp.Error = &respError{
+			respErr := &respError{
 				Code:    1,
 				Message: err.Error(),
 			}
+
+			var de DataError
+			if errors.As(err, &de) {
+				respErr.Data = de.ErrorData()
+			}
+
+			resp.Error = respErr
 		} else {
 			resp.Result = res
 		}
