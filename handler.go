@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"reflect"
@@ -79,8 +80,8 @@ func (e *respError) Error() string {
 	return e.Message
 }
 
-func (e *respError) ErrorData() string {
-	return fmt.Sprintf("%v", e.Data)
+func (e *respError) ErrorData() interface{} {
+	return e.Data
 }
 
 var marshalableRT = reflect.TypeOf(new(marshalable)).Elem()
@@ -124,13 +125,13 @@ func (r response) MarshalJSON() ([]byte, error) {
 	// > `error`:
 	// > This member is REQUIRED on error.
 	// > This member MUST NOT exist if there was no error triggered during invocation.
-	data := make(map[string]interface{})
-	data["jsonrpc"] = r.Jsonrpc
-	data["id"] = r.ID
+	data := map[string]interface{}{
+		"jsonrpc": r.Jsonrpc,
+		"id":      r.ID,
+	}
 
 	if r.Error != nil {
 		data["error"] = r.Error
-		data["data"] = "Sample error data for testing purposes"
 	} else {
 		data["result"] = r.Result
 	}
@@ -353,7 +354,6 @@ func (s *handler) createError(err error) *respError {
 	out := &respError{
 		Code:    code,
 		Message: err.Error(),
-		Data:    err.Error(),
 	}
 
 	if m, ok := err.(marshalable); ok {
@@ -365,9 +365,8 @@ func (s *handler) createError(err error) *respError {
 		}
 	}
 
-	// Keep the original ErrorData() functionality, but append the sample text
-	if dataErr, ok := err.(interface{ ErrorData() string }); ok {
-		out.Data = dataErr.ErrorData()
+	if de, ok := err.(DataError); ok {
+		out.Data = de.ErrorData()
 	}
 
 	return out
@@ -519,11 +518,17 @@ func (s *handler) handle(ctx context.Context, req request, w func(func(io.Writer
 
 			log.Warnf("failed to setup channel in RPC call to '%s': %+v", req.Method, err)
 			stats.Record(ctx, metrics.RPCResponseError.M(1))
-			resp.Error = &respError{
+			respErr := &respError{
 				Code:    1,
 				Message: err.Error(),
-				Data:    err.Error(),
 			}
+
+			var de DataError
+			if errors.As(err, &de) {
+				respErr.Data = de.ErrorData()
+			}
+
+			resp.Error = respErr
 		} else {
 			resp.Result = res
 		}

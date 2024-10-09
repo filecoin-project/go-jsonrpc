@@ -58,3 +58,8 @@ type marshalable interface {
 	json.Marshaler
 	json.Unmarshaler
 }
+
+type DataError interface {
+	Error() string          // returns the message
+	ErrorData() interface{} // returns the error data
+}
