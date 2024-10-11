@@ -59,6 +59,13 @@ type marshalable interface {
 	json.Unmarshaler
 }
 
+// Error wraps RPC errors, which contain an error code in addition to the message.
+type Error interface {
+	Error() string  // returns the message
+	ErrorCode() int // returns the code
+}
+
+// DataError contains extra data to explain the error
 type DataError interface {
 	Error() string          // returns the message
 	ErrorData() interface{} // returns the error data

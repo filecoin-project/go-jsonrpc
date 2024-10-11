@@ -365,7 +365,13 @@ func (s *handler) createError(err error) *respError {
 		}
 	}
 
-	if de, ok := err.(DataError); ok {
+	var err2 Error
+	if errors.As(err, &err2) {
+		out.Code = ErrorCode(err2.ErrorCode())
+	}
+
+	var de DataError
+	if errors.As(err, &de) {
 		out.Data = de.ErrorData()
 	}
 
