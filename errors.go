@@ -59,12 +59,6 @@ type marshalable interface {
 	json.Unmarshaler
 }
 
-// ErrorWithCode wraps RPC errors, which contain an error code in addition to the message.
-type ErrorWithCode interface {
-	Error() string  // returns the message
-	ErrorCode() int // returns the code
-}
-
 // ErrorWithData contains extra data to explain the error
 type ErrorWithData interface {
 	Error() string          // returns the message

@@ -365,11 +365,6 @@ func (s *handler) createError(err error) *respError {
 		}
 	}
 
-	var ec ErrorWithCode
-	if errors.As(err, &ec) {
-		out.Code = ErrorCode(ec.ErrorCode())
-	}
-
 	var ed ErrorWithData
 	if errors.As(err, &ed) {
 		out.Data = ed.ErrorData()
@@ -529,9 +524,9 @@ func (s *handler) handle(ctx context.Context, req request, w func(func(io.Writer
 				Message: err.Error(),
 			}
 
-			var de ErrorWithData
-			if errors.As(err, &de) {
-				respErr.Data = de.ErrorData()
+			var ed ErrorWithData
+			if errors.As(err, &ed) {
+				respErr.Data = ed.ErrorData()
 			}
 
 			resp.Error = respErr
