@@ -84,7 +84,10 @@ func (e *respError) ErrorData() interface{} {
 	return e.Data
 }
 
-var marshalableRT = reflect.TypeOf(new(marshalable)).Elem()
+var (
+	marshalableRT = reflect.TypeOf(new(marshalable)).Elem()
+	errorsRT      = reflect.TypeOf(new(ErrorWithData)).Elem()
+)
 
 func (e *respError) val(errors *Errors) reflect.Value {
 	if errors != nil {
@@ -96,9 +99,23 @@ func (e *respError) val(errors *Errors) reflect.Value {
 			} else {
 				v = reflect.New(t)
 			}
+
 			if len(e.Meta) > 0 && v.Type().Implements(marshalableRT) {
 				_ = v.Interface().(marshalable).UnmarshalJSON(e.Meta)
+			} else {
+				msgField := v.Elem().FieldByName("Message")
+				if msgField.IsValid() && msgField.CanSet() && msgField.Kind() == reflect.String {
+					msgField.SetString(e.Message)
+				}
+
+				if v.Type().Implements(errorsRT) {
+					dataField := v.Elem().FieldByName("Data")
+					if dataField.IsValid() && dataField.CanSet() {
+						dataField.Set(reflect.ValueOf(e.Data))
+					}
+				}
 			}
+
 			if t.Kind() != reflect.Ptr {
 				v = v.Elem()
 			}
