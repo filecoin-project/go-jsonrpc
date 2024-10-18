@@ -102,17 +102,17 @@ func (e *respError) val(errors *Errors) reflect.Value {
 
 			if len(e.Meta) > 0 && v.Type().Implements(marshalableRT) {
 				_ = v.Interface().(marshalable).UnmarshalJSON(e.Meta)
-			} else {
-				msgField := v.Elem().FieldByName("Message")
-				if msgField.IsValid() && msgField.CanSet() && msgField.Kind() == reflect.String {
-					msgField.SetString(e.Message)
-				}
+			}
 
-				if v.Type().Implements(errorsRT) {
-					dataField := v.Elem().FieldByName("Data")
-					if dataField.IsValid() && dataField.CanSet() {
-						dataField.Set(reflect.ValueOf(e.Data))
-					}
+			msgField := v.Elem().FieldByName("Message")
+			if msgField.IsValid() && msgField.CanSet() && msgField.Kind() == reflect.String {
+				msgField.SetString(e.Message)
+			}
+
+			if v.Type().Implements(errorsRT) {
+				dataField := v.Elem().FieldByName("Data")
+				if dataField.IsValid() && dataField.CanSet() {
+					dataField.Set(reflect.ValueOf(e.Data))
 				}
 			}
 
