@@ -59,7 +59,7 @@ type marshalable interface {
 	json.Unmarshaler
 }
 
-type ErrorCodec interface {
+type RPCErrorCodec interface {
 	FromJSONRPCError(JSONRPCError) error
 	ToJSONRPCError() (JSONRPCError, error)
 }

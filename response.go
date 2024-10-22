@@ -52,7 +52,7 @@ func (e *JSONRPCError) Error() string {
 var (
 	_               error = (*JSONRPCError)(nil)
 	marshalableRT         = reflect.TypeOf(new(marshalable)).Elem()
-	unmarshalableRT       = reflect.TypeOf(new(ErrorCodec)).Elem()
+	unmarshalableRT       = reflect.TypeOf(new(RPCErrorCodec)).Elem()
 )
 
 func (e *JSONRPCError) val(errors *Errors) reflect.Value {
@@ -67,7 +67,7 @@ func (e *JSONRPCError) val(errors *Errors) reflect.Value {
 			}
 
 			if v.Type().Implements(unmarshalableRT) {
-				_ = v.Interface().(ErrorCodec).FromJSONRPCError(*e)
+				_ = v.Interface().(RPCErrorCodec).FromJSONRPCError(*e)
 			}
 
 			if len(e.Meta) > 0 && v.Type().Implements(marshalableRT) {

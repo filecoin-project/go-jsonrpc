@@ -35,7 +35,7 @@ func (e *SimpleError) ToJSONRPCError() (JSONRPCError, error) {
 	return JSONRPCError{Message: e.Message}, nil
 }
 
-var _ ErrorCodec = (*SimpleError)(nil)
+var _ RPCErrorCodec = (*SimpleError)(nil)
 
 type DataStringError struct {
 	Message string `json:"message"`
@@ -62,7 +62,7 @@ func (e *DataStringError) ToJSONRPCError() (JSONRPCError, error) {
 	return JSONRPCError{Message: e.Message, Data: e.Data}, nil
 }
 
-var _ ErrorCodec = (*DataStringError)(nil)
+var _ RPCErrorCodec = (*DataStringError)(nil)
 
 type DataComplexError struct {
 	Message      string
@@ -94,7 +94,7 @@ func (e *DataComplexError) ToJSONRPCError() (JSONRPCError, error) {
 	return JSONRPCError{Message: e.Message, Data: data}, nil
 }
 
-var _ ErrorCodec = (*DataComplexError)(nil)
+var _ RPCErrorCodec = (*DataComplexError)(nil)
 
 type MetaError struct {
 	Message string

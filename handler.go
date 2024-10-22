@@ -284,7 +284,7 @@ func (s *handler) createError(err error) *JSONRPCError {
 	}
 
 	switch m := err.(type) {
-	case ErrorCodec:
+	case RPCErrorCodec:
 		o, err := m.ToJSONRPCError()
 		if err != nil {
 			log.Warnf("Failed to convert error to JSONRPCError: %v", err)
@@ -455,12 +455,12 @@ func (s *handler) handle(ctx context.Context, req request, w func(func(io.Writer
 				Message: err.Error(),
 			}
 
-			if m, ok := err.(ErrorCodec); ok {
-				respErr, err := m.ToJSONRPCError()
+			if m, ok := err.(RPCErrorCodec); ok {
+				rpcErr, err := m.ToJSONRPCError()
 				if err != nil {
 					log.Warnf("Failed to convert error to JSONRPCError: %v", err)
 				} else {
-					resp.Error.Data = respErr.Data
+					respErr.Data = rpcErr.Data
 				}
 			}
 
