@@ -34,7 +34,7 @@ type frame struct {
 
 	// response
 	Result json.RawMessage `json:"result,omitempty"`
-	Error  *respError      `json:"error,omitempty"`
+	Error  *JSONRPCError   `json:"error,omitempty"`
 }
 
 type outChanReg struct {
@@ -529,7 +529,7 @@ func (c *wsConn) closeInFlight() {
 		req.ready <- clientResponse{
 			Jsonrpc: "2.0",
 			ID:      id,
-			Error: &respError{
+			Error: &JSONRPCError{
 				Message: "handler: websocket connection closed",
 				Code:    eTempWSError,
 			},
@@ -802,7 +802,7 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 					req.ready <- clientResponse{
 						Jsonrpc: "2.0",
 						ID:      req.req.ID,
-						Error: &respError{
+						Error: &JSONRPCError{
 							Message: "handler: websocket connection closed",
 							Code:    eTempWSError,
 						},
@@ -824,7 +824,7 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 					Jsonrpc: "2.0",
 				}
 				if serr != nil {
-					resp.Error = &respError{
+					resp.Error = &JSONRPCError{
 						Code:    eTempWSError,
 						Message: fmt.Sprintf("sendRequest: %s", serr),
 					}
