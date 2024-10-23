@@ -50,9 +50,9 @@ func (e *JSONRPCError) Error() string {
 }
 
 var (
-	_               error = (*JSONRPCError)(nil)
-	marshalableRT         = reflect.TypeOf(new(marshalable)).Elem()
-	unmarshalableRT       = reflect.TypeOf(new(RPCErrorCodec)).Elem()
+	_             error = (*JSONRPCError)(nil)
+	marshalableRT       = reflect.TypeOf(new(marshalable)).Elem()
+	errorCodecRT        = reflect.TypeOf(new(RPCErrorCodec)).Elem()
 )
 
 func (e *JSONRPCError) val(errors *Errors) reflect.Value {
@@ -66,12 +66,18 @@ func (e *JSONRPCError) val(errors *Errors) reflect.Value {
 				v = reflect.New(t)
 			}
 
-			if v.Type().Implements(unmarshalableRT) {
-				_ = v.Interface().(RPCErrorCodec).FromJSONRPCError(*e)
+			if v.Type().Implements(errorCodecRT) {
+				if err := v.Interface().(RPCErrorCodec).FromJSONRPCError(*e); err != nil {
+					log.Errorf("Error converting JSONRPCError (code %d) to custom error type '%s': %w", e.Code, t.String(), err)
+					return reflect.ValueOf(e)
+				}
 			}
 
 			if len(e.Meta) > 0 && v.Type().Implements(marshalableRT) {
-				_ = v.Interface().(marshalable).UnmarshalJSON(e.Meta)
+				if err := v.Interface().(marshalable).UnmarshalJSON(e.Meta); err != nil {
+					log.Errorf("Error unmarshaling metadata for error type '%s': %w", t.String(), err)
+					return reflect.ValueOf(e)
+				}
 			}
 
 			if t.Kind() != reflect.Ptr {
