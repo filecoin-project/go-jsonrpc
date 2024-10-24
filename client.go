@@ -71,7 +71,7 @@ type clientResponse struct {
 	Jsonrpc string          `json:"jsonrpc"`
 	Result  json.RawMessage `json:"result"`
 	ID      interface{}     `json:"id"`
-	Error   *respError      `json:"error,omitempty"`
+	Error   *JSONRPCError   `json:"error,omitempty"`
 }
 
 type makeChanSink func() (context.Context, func([]byte, bool))

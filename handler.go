@@ -65,71 +65,6 @@ type request struct {
 // Configured by WithMaxRequestSize.
 const DEFAULT_MAX_REQUEST_SIZE = 100 << 20 // 100 MiB
 
-type respError struct {
-	Code    ErrorCode       `json:"code"`
-	Message string          `json:"message"`
-	Meta    json.RawMessage `json:"meta,omitempty"`
-}
-
-func (e *respError) Error() string {
-	if e.Code >= -32768 && e.Code <= -32000 {
-		return fmt.Sprintf("RPC error (%d): %s", e.Code, e.Message)
-	}
-	return e.Message
-}
-
-var marshalableRT = reflect.TypeOf(new(marshalable)).Elem()
-
-func (e *respError) val(errors *Errors) reflect.Value {
-	if errors != nil {
-		t, ok := errors.byCode[e.Code]
-		if ok {
-			var v reflect.Value
-			if t.Kind() == reflect.Ptr {
-				v = reflect.New(t.Elem())
-			} else {
-				v = reflect.New(t)
-			}
-			if len(e.Meta) > 0 && v.Type().Implements(marshalableRT) {
-				_ = v.Interface().(marshalable).UnmarshalJSON(e.Meta)
-			}
-			if t.Kind() != reflect.Ptr {
-				v = v.Elem()
-			}
-			return v
-		}
-	}
-
-	return reflect.ValueOf(e)
-}
-
-type response struct {
-	Jsonrpc string
-	Result  interface{}
-	ID      interface{}
-	Error   *respError
-}
-
-func (r response) MarshalJSON() ([]byte, error) {
-	// Custom marshal logic as per JSON-RPC 2.0 spec:
-	// > `result`:
-	// > This member is REQUIRED on success.
-	// > This member MUST NOT exist if there was an error invoking the method.
-	//
-	// > `error`:
-	// > This member is REQUIRED on error.
-	// > This member MUST NOT exist if there was no error triggered during invocation.
-	data := make(map[string]interface{})
-	data["jsonrpc"] = r.Jsonrpc
-	data["id"] = r.ID
-	if r.Error != nil {
-		data["error"] = r.Error
-	} else {
-		data["result"] = r.Result
-	}
-	return json.Marshal(data)
-}
-
 type handler struct {
 	methods map[string]methodHandler
 	errors  *Errors
@@ -334,7 +269,7 @@ func (s *handler) getSpan(ctx context.Context, req request) (context.Context, *t
 	return ctx, span
 }
 
-func (s *handler) createError(err error) *respError {
+func (s *handler) createError(err error) *JSONRPCError {
 	var code ErrorCode = 1
 	if s.errors != nil {
 		c, ok := s.errors.byType[reflect.TypeOf(err)]
@@ -343,15 +278,25 @@ func (s *handler) createError(err error) *respError {
 		}
 	}
 
-	out := &respError{
+	out := &JSONRPCError{
 		Code:    code,
 		Message: err.Error(),
 	}
 
-	if m, ok := err.(marshalable); ok {
-		meta, err := m.MarshalJSON()
-		if err == nil {
+	switch m := err.(type) {
+	case RPCErrorCodec:
+		o, err := m.ToJSONRPCError()
+		if err != nil {
+			log.Errorf("Failed to convert error to JSONRPCError: %w", err)
+		} else {
+			out = &o
+		}
+	case marshalable:
+		meta, marshalErr := m.MarshalJSON()
+		if marshalErr == nil {
 			out.Meta = meta
+		} else {
+			log.Errorf("Failed to marshal error metadata: %w", marshalErr)
 		}
 	}
 
@@ -504,7 +449,8 @@ func (s *handler) handle(ctx context.Context, req request, w func(func(io.Writer
 
 			log.Warnf("failed to setup channel in RPC call to '%s': %+v", req.Method, err)
 			stats.Record(ctx, metrics.RPCResponseError.M(1))
-			resp.Error = &respError{
+
+			resp.Error = &JSONRPCError{
 				Code:    1,
 				Message: err.Error(),
 			}
