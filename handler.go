@@ -287,7 +287,7 @@ func (s *handler) createError(err error) *JSONRPCError {
 	case RPCErrorCodec:
 		o, err := m.ToJSONRPCError()
 		if err != nil {
-			log.Warnf("Failed to convert error to JSONRPCError: %v", err)
+			log.Errorf("Failed to convert error to JSONRPCError: %w", err)
 		} else {
 			out = &o
 		}
@@ -296,7 +296,7 @@ func (s *handler) createError(err error) *JSONRPCError {
 		if marshalErr == nil {
 			out.Meta = meta
 		} else {
-			log.Warnf("Failed to marshal error metadata: %v", marshalErr)
+			log.Errorf("Failed to marshal error metadata: %w", marshalErr)
 		}
 	}
 
@@ -450,21 +450,10 @@ func (s *handler) handle(ctx context.Context, req request, w func(func(io.Writer
 			log.Warnf("failed to setup channel in RPC call to '%s': %+v", req.Method, err)
 			stats.Record(ctx, metrics.RPCResponseError.M(1))
 
-			respErr := &JSONRPCError{
+			resp.Error = &JSONRPCError{
 				Code:    1,
 				Message: err.Error(),
 			}
-
-			if m, ok := err.(RPCErrorCodec); ok {
-				rpcErr, err := m.ToJSONRPCError()
-				if err != nil {
-					log.Warnf("Failed to convert error to JSONRPCError: %v", err)
-				} else {
-					respErr.Data = rpcErr.Data
-				}
-			}
-
-			resp.Error = respErr
 		} else {
 			resp.Result = res
 		}
