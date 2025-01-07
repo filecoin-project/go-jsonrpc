@@ -65,6 +65,7 @@ type wsConn struct {
 	// incoming messages
 	incoming    chan io.Reader
 	incomingErr error
+	errLk       sync.Mutex
 
 	readError chan error
 
@@ -115,12 +116,16 @@ func (c *wsConn) nextMessage() {
 	c.resetReadDeadline()
 	msgType, r, err := c.conn.NextReader()
 	if err != nil {
+		c.errLk.Lock()
 		c.incomingErr = err
+		c.errLk.Unlock()
 		close(c.incoming)
 		return
 	}
 	if msgType != websocket.BinaryMessage && msgType != websocket.TextMessage {
+		c.errLk.Lock()
 		c.incomingErr = errors.New("unsupported message type")
+		c.errLk.Unlock()
 		close(c.incoming)
 		return
 	}
@@ -647,7 +652,9 @@ func (c *wsConn) tryReconnect(ctx context.Context) bool {
 
 		c.writeLk.Lock()
 		c.conn = conn
+		c.errLk.Lock()
 		c.incomingErr = nil
+		c.errLk.Unlock()
 
 		c.stopPings = c.setupPings()
 
@@ -767,7 +774,9 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 		select {
 		case r, ok := <-c.incoming:
 			action = "incoming"
+			c.errLk.Lock()
 			err := c.incomingErr
+			c.errLk.Unlock()
 
 			if ok {
 				go c.readFrame(ctx, r)
@@ -798,7 +807,10 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 
 			c.writeLk.Lock()
 			if req.req.ID != nil { // non-notification
-				if c.incomingErr != nil { // No conn?, immediate fail
+				c.errLk.Lock()
+				hasErr := c.incomingErr != nil
+				c.errLk.Unlock()
+				if hasErr { // No conn?, immediate fail
 					req.ready <- clientResponse{
 						Jsonrpc: "2.0",
 						ID:      req.req.ID,
