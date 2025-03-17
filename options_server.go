@@ -86,6 +86,7 @@ func WithReverseClient[RP any](namespace string) ServerOption {
 		c.reverseClientBuilder = func(ctx context.Context, conn *wsConn) (context.Context, error) {
 			cl := client{
 				namespace:     namespace,
+				methodNamer:   c.methodNamer,
 				paramEncoders: map[reflect.Type]ParamEncoder{},
 			}
 

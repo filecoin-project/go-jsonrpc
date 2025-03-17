@@ -98,6 +98,7 @@ func NewClient(ctx context.Context, addr string, namespace string, handler inter
 
 type client struct {
 	namespace     string
+	methodNamer   MethodNamer
 	paramEncoders map[reflect.Type]ParamEncoder
 	errors        *Errors
 
@@ -139,6 +140,7 @@ func NewCustomClient(namespace string, outs []interface{}, doRequest func(ctx co
 
 	c := client{
 		namespace:     namespace,
+		methodNamer:   config.methodNamer,
 		paramEncoders: config.paramEncoders,
 		errors:        config.errors,
 	}
@@ -193,6 +195,7 @@ func NewCustomClient(namespace string, outs []interface{}, doRequest func(ctx co
 func httpClient(ctx context.Context, addr string, namespace string, outs []interface{}, requestHeader http.Header, config Config) (ClientCloser, error) {
 	c := client{
 		namespace:     namespace,
+		methodNamer:   config.methodNamer,
 		paramEncoders: config.paramEncoders,
 		errors:        config.errors,
 	}
@@ -288,6 +291,7 @@ func websocketClient(ctx context.Context, addr string, namespace string, outs []
 
 	c := client{
 		namespace:     namespace,
+		methodNamer:   config.methodNamer,
 		paramEncoders: config.paramEncoders,
 		errors:        config.errors,
 	}
@@ -710,7 +714,7 @@ func (c *client) makeRpcFunc(f reflect.StructField) (reflect.Value, error) {
 		return reflect.Value{}, xerrors.New("handler field not a func")
 	}
 
-	name := c.namespace + "." + f.Name
+	name := c.methodNamer(c.namespace, f.Name)
 	if tag, ok := f.Tag.Lookup(ProxyTagRPCMethod); ok {
 		name = tag
 	}
