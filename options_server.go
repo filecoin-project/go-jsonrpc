@@ -15,7 +15,7 @@ type ParamDecoder func(ctx context.Context, json []byte) (reflect.Value, error)
 
 type MethodCaseTransformer func(string) string
 
-const DEFAULT_SEPARATOR = "."
+const defaultSeparator = "."
 
 type ServerConfig struct {
 	maxRequestSize int64
@@ -38,7 +38,7 @@ func defaultServerConfig() ServerConfig {
 		maxRequestSize: DEFAULT_MAX_REQUEST_SIZE,
 
 		pingInterval: 5 * time.Second,
-		separator:    DEFAULT_SEPARATOR,
+		separator:    defaultSeparator,
 	}
 }
 
