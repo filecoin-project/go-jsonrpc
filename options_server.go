@@ -13,7 +13,7 @@ type jsonrpcReverseClient struct{ reflect.Type }
 
 type ParamDecoder func(ctx context.Context, json []byte) (reflect.Value, error)
 
-type MethodCaseTransformer func(string) string
+type MethodTransformer func(string) string
 
 const defaultSeparator = "."
 
@@ -24,10 +24,10 @@ type ServerConfig struct {
 	paramDecoders map[reflect.Type]ParamDecoder
 	errors        *Errors
 
-	reverseClientBuilder  func(context.Context, *wsConn) (context.Context, error)
-	tracer                Tracer
-	methodCaseTransformer MethodCaseTransformer
-	separator             string
+	reverseClientBuilder func(context.Context, *wsConn) (context.Context, error)
+	tracer               Tracer
+	methodTransformer    MethodTransformer
+	separator            string
 }
 
 type ServerOption func(c *ServerConfig)
@@ -72,9 +72,9 @@ func WithNamespaceSeparator(separator string) ServerOption {
 	}
 }
 
-func WithMethodTransformer(methodCaseTransformer MethodCaseTransformer) ServerOption {
+func WithMethodTransformer(methodTransformer MethodTransformer) ServerOption {
 	return func(c *ServerConfig) {
-		c.methodCaseTransformer = methodCaseTransformer
+		c.methodTransformer = methodTransformer
 	}
 }
 

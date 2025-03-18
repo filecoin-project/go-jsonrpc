@@ -77,7 +77,7 @@ type handler struct {
 
 	paramDecoders map[reflect.Type]ParamDecoder
 
-	methodCaseTransformer MethodCaseTransformer
+	methodTransformer MethodTransformer
 
 	tracer    Tracer
 	separator string
@@ -93,7 +93,7 @@ func makeHandler(sc ServerConfig) *handler {
 		aliasedMethods: map[string]string{},
 		paramDecoders:  sc.paramDecoders,
 
-		methodCaseTransformer: sc.methodCaseTransformer,
+		methodTransformer: sc.methodTransformer,
 
 		maxRequestSize: sc.maxRequestSize,
 
@@ -131,8 +131,8 @@ func (s *handler) register(namespace string, r interface{}) {
 		}
 
 		valOut, errOut, _ := processFuncOut(funcType)
-		if s.methodCaseTransformer != nil {
-			method.Name = s.methodCaseTransformer(method.Name)
+		if s.methodTransformer != nil {
+			method.Name = s.methodTransformer(method.Name)
 		}
 
 		s.methods[namespace+s.separator+method.Name] = methodHandler{
