@@ -1757,7 +1757,7 @@ func TestCallWithMethodTransformer(t *testing.T) {
 	var matchFirstCap = regexp.MustCompile("(.)([A-Z][a-z]+)")
 	var matchAllCap = regexp.MustCompile("([a-z0-9])([A-Z])")
 
-	rpcServer := NewServer(WithMethodTransformer(func(method string) string {
+	rpcServer := NewServer(WithMethodNameTransformer(func(method string) string {
 		snake := matchFirstCap.ReplaceAllString(method, "${1}_${2}")
 		snake = matchAllCap.ReplaceAllString(snake, "${1}_${2}")
 		return strings.ToLower(snake)

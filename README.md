@@ -269,11 +269,11 @@ func main() {
 }
 ```
 
-### Using `WithMethodTransformer`
+### Using `WithMethodNameTransformer`
 ```go
 func main() {
     // create a new server instance with a custom method transformer
-    rpcServer := jsonrpc.NewServer(jsonrpc.WithMethodTransformer(strcase.ToSnake))
+    rpcServer := jsonrpc.NewServer(jsonrpc.WithMethodNameTransformer(toSnakeCase))
     
     // create a handler instance and register it
     serverHandler := &SimpleServerHandler{}
