@@ -13,7 +13,7 @@ type jsonrpcReverseClient struct{ reflect.Type }
 
 type ParamDecoder func(ctx context.Context, json []byte) (reflect.Value, error)
 
-type MethodNameFormatter func(namespace string, method string) string
+type MethodNameFormatter func(namespace, method string) string
 
 type ServerConfig struct {
 	maxRequestSize int64
