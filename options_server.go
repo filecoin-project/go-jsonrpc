@@ -13,9 +13,7 @@ type jsonrpcReverseClient struct{ reflect.Type }
 
 type ParamDecoder func(ctx context.Context, json []byte) (reflect.Value, error)
 
-type MethodNameTransformer func(string) string
-
-const defaultSeparator = "."
+type MethodNameFormatter func(namespace string, method string) string
 
 type ServerConfig struct {
 	maxRequestSize int64
@@ -24,10 +22,9 @@ type ServerConfig struct {
 	paramDecoders map[reflect.Type]ParamDecoder
 	errors        *Errors
 
-	reverseClientBuilder  func(context.Context, *wsConn) (context.Context, error)
-	tracer                Tracer
-	methodNameTransformer MethodNameTransformer
-	separator             string
+	reverseClientBuilder func(context.Context, *wsConn) (context.Context, error)
+	tracer               Tracer
+	methodNameFormatter  MethodNameFormatter
 }
 
 type ServerOption func(c *ServerConfig)
@@ -38,7 +35,9 @@ func defaultServerConfig() ServerConfig {
 		maxRequestSize: DEFAULT_MAX_REQUEST_SIZE,
 
 		pingInterval: 5 * time.Second,
-		separator:    defaultSeparator,
+		methodNameFormatter: func(namespace, method string) string {
+			return namespace + "." + method
+		},
 	}
 }
 
@@ -66,15 +65,9 @@ func WithServerPingInterval(d time.Duration) ServerOption {
 	}
 }
 
-func WithNamespaceSeparator(separator string) ServerOption {
+func WithMethodNameFormatter(formatter MethodNameFormatter) ServerOption {
 	return func(c *ServerConfig) {
-		c.separator = separator
-	}
-}
-
-func WithMethodNameTransformer(methodNameTransformer MethodNameTransformer) ServerOption {
-	return func(c *ServerConfig) {
-		c.methodNameTransformer = methodNameTransformer
+		c.methodNameFormatter = formatter
 	}
 }
 

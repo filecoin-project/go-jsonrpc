@@ -12,7 +12,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"reflect"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -1717,10 +1716,10 @@ func TestNewCustomClient(t *testing.T) {
 	require.Equal(t, int32(13), serverHandler.n)
 }
 
-func TestReverseCallWithCustomSeparator(t *testing.T) {
+func TestReverseCallWithCustomMethodName(t *testing.T) {
 	// setup server
 
-	rpcServer := NewServer(WithNamespaceSeparator("_"))
+	rpcServer := NewServer(WithMethodNameFormatter(func(namespace, method string) string { return namespace + "_" + method }))
 	rpcServer.Register("Server", &RawParamHandler{})
 
 	// httptest stuff
@@ -1749,38 +1748,4 @@ type MethodTransformedHandler struct{}
 
 func (h *RawParamHandler) CallSomethingInSnakeCase(ctx context.Context, v int) (int, error) {
 	return v + 1, nil
-}
-
-func TestCallWithMethodTransformer(t *testing.T) {
-	// setup server
-
-	var matchFirstCap = regexp.MustCompile("(.)([A-Z][a-z]+)")
-	var matchAllCap = regexp.MustCompile("([a-z0-9])([A-Z])")
-
-	rpcServer := NewServer(WithMethodNameTransformer(func(method string) string {
-		snake := matchFirstCap.ReplaceAllString(method, "${1}_${2}")
-		snake = matchAllCap.ReplaceAllString(snake, "${1}_${2}")
-		return strings.ToLower(snake)
-	}))
-	rpcServer.Register("Raw", &RawParamHandler{})
-
-	// httptest stuff
-	testServ := httptest.NewServer(rpcServer)
-	defer testServ.Close()
-
-	// setup client
-	var client struct {
-		Call func(ctx context.Context, v int) (int, error) `rpc_method:"Raw.call_something_in_snake_case"`
-	}
-	closer, err := NewMergeClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "Raw", []interface{}{
-		&client,
-	}, nil)
-	require.NoError(t, err)
-
-	// this will block if it's not sent as a notification
-	n, err := client.Call(context.Background(), 6)
-	require.NoError(t, err)
-	require.Equal(t, 7, n)
-
-	closer()
 }
