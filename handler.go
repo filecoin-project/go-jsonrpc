@@ -312,14 +312,7 @@ func (s *handler) createError(err error) *JSONRPCError {
 	return out
 }
 
-func (s *handler) handle(
-	ctx context.Context,
-	req request,
-	w func(func(io.Writer)),
-	rpcError rpcErrFunc,
-	done func(keepCtx bool),
-	chOut chanOut,
-) {
+func (s *handler) handle(ctx context.Context, req request, w func(func(io.Writer)), rpcError rpcErrFunc, done func(keepCtx bool), chOut chanOut) {
 	// Not sure if we need to sanitize the incoming req.Method or not.
 	ctx, span := s.getSpan(ctx, req)
 	ctx, _ = tag.New(ctx, tag.Insert(metrics.RPCMethod, req.Method))
