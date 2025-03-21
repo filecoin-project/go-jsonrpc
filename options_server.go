@@ -13,6 +13,8 @@ type jsonrpcReverseClient struct{ reflect.Type }
 
 type ParamDecoder func(ctx context.Context, json []byte) (reflect.Value, error)
 
+type MethodNameFormatter func(namespace, method string) string
+
 type ServerConfig struct {
 	maxRequestSize int64
 	pingInterval   time.Duration
@@ -22,6 +24,7 @@ type ServerConfig struct {
 
 	reverseClientBuilder func(context.Context, *wsConn) (context.Context, error)
 	tracer               Tracer
+	methodNameFormatter  MethodNameFormatter
 }
 
 type ServerOption func(c *ServerConfig)
@@ -32,6 +35,9 @@ func defaultServerConfig() ServerConfig {
 		maxRequestSize: DEFAULT_MAX_REQUEST_SIZE,
 
 		pingInterval: 5 * time.Second,
+		methodNameFormatter: func(namespace, method string) string {
+			return namespace + "." + method
+		},
 	}
 }
 
@@ -56,6 +62,12 @@ func WithServerErrors(es Errors) ServerOption {
 func WithServerPingInterval(d time.Duration) ServerOption {
 	return func(c *ServerConfig) {
 		c.pingInterval = d
+	}
+}
+
+func WithMethodNameFormatter(formatter MethodNameFormatter) ServerOption {
+	return func(c *ServerConfig) {
+		c.methodNameFormatter = formatter
 	}
 }
 

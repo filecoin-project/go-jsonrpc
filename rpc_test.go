@@ -1248,7 +1248,11 @@ func TestIDHandling(t *testing.T) {
 		expect    interface{}
 		expectErr bool
 	}{
-		{`{"id":"8116d306-56cc-4637-9dd7-39ce1548a5a0","jsonrpc":"2.0","method":"eth_blockNumber","params":[]}`, "8116d306-56cc-4637-9dd7-39ce1548a5a0", false},
+		{
+			`{"id":"8116d306-56cc-4637-9dd7-39ce1548a5a0","jsonrpc":"2.0","method":"eth_blockNumber","params":[]}`,
+			"8116d306-56cc-4637-9dd7-39ce1548a5a0",
+			false,
+		},
 		{`{"id":1234,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]}`, float64(1234), false},
 		{`{"id":null,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]}`, nil, false},
 		{`{"id":1234.0,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]}`, 1234.0, false},
@@ -1710,4 +1714,38 @@ func TestNewCustomClient(t *testing.T) {
 	n := client.AddGet(3)
 	require.Equal(t, 13, n)
 	require.Equal(t, int32(13), serverHandler.n)
+}
+
+func TestReverseCallWithCustomMethodName(t *testing.T) {
+	// setup server
+
+	rpcServer := NewServer(WithMethodNameFormatter(func(namespace, method string) string { return namespace + "_" + method }))
+	rpcServer.Register("Server", &RawParamHandler{})
+
+	// httptest stuff
+	testServ := httptest.NewServer(rpcServer)
+	defer testServ.Close()
+
+	// setup client
+
+	var client struct {
+		Call func(ctx context.Context, ps RawParams) error `rpc_method:"Server_Call"`
+	}
+	closer, err := NewMergeClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "Server", []interface{}{
+		&client,
+	}, nil)
+	require.NoError(t, err)
+
+	// do the call!
+
+	e := client.Call(context.Background(), []byte(`{"I": 1}`))
+	require.NoError(t, e)
+
+	closer()
+}
+
+type MethodTransformedHandler struct{}
+
+func (h *RawParamHandler) CallSomethingInSnakeCase(ctx context.Context, v int) (int, error) {
+	return v + 1, nil
 }

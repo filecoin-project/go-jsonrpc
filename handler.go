@@ -77,6 +77,8 @@ type handler struct {
 
 	paramDecoders map[reflect.Type]ParamDecoder
 
+	methodNameFormatter MethodNameFormatter
+
 	tracer Tracer
 }
 
@@ -89,6 +91,8 @@ func makeHandler(sc ServerConfig) *handler {
 
 		aliasedMethods: map[string]string{},
 		paramDecoders:  sc.paramDecoders,
+
+		methodNameFormatter: sc.methodNameFormatter,
 
 		maxRequestSize: sc.maxRequestSize,
 
@@ -126,7 +130,7 @@ func (s *handler) register(namespace string, r interface{}) {
 
 		valOut, errOut, _ := processFuncOut(funcType)
 
-		s.methods[namespace+"."+method.Name] = methodHandler{
+		s.methods[s.methodNameFormatter(namespace, method.Name)] = methodHandler{
 			paramReceivers: recvs,
 			nParams:        ins,
 
