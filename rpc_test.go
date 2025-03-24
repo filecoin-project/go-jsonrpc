@@ -1719,7 +1719,7 @@ func TestNewCustomClient(t *testing.T) {
 func TestReverseCallWithCustomMethodName(t *testing.T) {
 	// setup server
 
-	rpcServer := NewServer(WithMethodNameFormatter(func(namespace, method string) string { return namespace + "_" + method }))
+	rpcServer := NewServer(WithServerMethodNameFormatter(func(namespace, method string) string { return namespace + "_" + method }))
 	rpcServer.Register("Server", &RawParamHandler{})
 
 	// httptest stuff

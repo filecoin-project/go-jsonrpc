@@ -98,13 +98,14 @@ func NewClient(ctx context.Context, addr string, namespace string, handler inter
 
 type client struct {
 	namespace     string
-	methodNamer   MethodNamer
 	paramEncoders map[reflect.Type]ParamEncoder
 	errors        *Errors
 
 	doRequest func(context.Context, clientRequest) (clientResponse, error)
 	exiting   <-chan struct{}
 	idCtr     int64
+
+	methodNameFormatter MethodNameFormatter
 }
 
 // NewMergeClient is like NewClient, but allows to specify multiple structs
@@ -139,10 +140,10 @@ func NewCustomClient(namespace string, outs []interface{}, doRequest func(ctx co
 	}
 
 	c := client{
-		namespace:     namespace,
-		methodNamer:   config.methodNamer,
-		paramEncoders: config.paramEncoders,
-		errors:        config.errors,
+		namespace:           namespace,
+		methodNameFormatter: config.methodNamer,
+		paramEncoders:       config.paramEncoders,
+		errors:              config.errors,
 	}
 
 	stop := make(chan struct{})
@@ -194,10 +195,10 @@ func NewCustomClient(namespace string, outs []interface{}, doRequest func(ctx co
 
 func httpClient(ctx context.Context, addr string, namespace string, outs []interface{}, requestHeader http.Header, config Config) (ClientCloser, error) {
 	c := client{
-		namespace:     namespace,
-		methodNamer:   config.methodNamer,
-		paramEncoders: config.paramEncoders,
-		errors:        config.errors,
+		namespace:           namespace,
+		methodNameFormatter: config.methodNamer,
+		paramEncoders:       config.paramEncoders,
+		errors:              config.errors,
 	}
 
 	stop := make(chan struct{})
@@ -290,10 +291,10 @@ func websocketClient(ctx context.Context, addr string, namespace string, outs []
 	}
 
 	c := client{
-		namespace:     namespace,
-		methodNamer:   config.methodNamer,
-		paramEncoders: config.paramEncoders,
-		errors:        config.errors,
+		namespace:           namespace,
+		methodNameFormatter: config.methodNamer,
+		paramEncoders:       config.paramEncoders,
+		errors:              config.errors,
 	}
 
 	requests := c.setupRequestChan()
@@ -714,7 +715,7 @@ func (c *client) makeRpcFunc(f reflect.StructField) (reflect.Value, error) {
 		return reflect.Value{}, xerrors.New("handler field not a func")
 	}
 
-	name := c.methodNamer(c.namespace, f.Name)
+	name := c.methodNameFormatter(c.namespace, f.Name)
 	if tag, ok := f.Tag.Lookup(ProxyTagRPCMethod); ok {
 		name = tag
 	}

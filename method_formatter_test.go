@@ -12,26 +12,26 @@ import (
 
 func TestDifferentMethodNamers(t *testing.T) {
 	tests := map[string]struct {
-		namer MethodNamer
+		namer MethodNameFormatter
 
 		requestedMethod string
 	}{
 		"default namer": {
-			namer:           DefaultMethodNamer,
+			namer:           DefaultMethodNameFormatter,
 			requestedMethod: "SimpleServerHandler.Inc",
 		},
 		"no namespace namer": {
-			namer:           NoNamespaceMethodNamer,
+			namer:           NoNamespaceMethodNameFormatter,
 			requestedMethod: "Inc",
 		},
 		"no namespace & decapitalized namer": {
-			namer:           NoNamespaceDecapitalizedMethodNamer,
+			namer:           NoNamespaceDecapitalizedMethodNameFormatter,
 			requestedMethod: "inc",
 		},
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			rpcServer := NewServer(WithServerMethodNamer(test.namer))
+			rpcServer := NewServer(WithServerMethodNameFormatter(test.namer))
 
 			serverHandler := &SimpleServerHandler{}
 			rpcServer.Register("SimpleServerHandler", serverHandler)
@@ -52,37 +52,37 @@ func TestDifferentMethodNamers(t *testing.T) {
 
 func TestDifferentMethodNamersWithClient(t *testing.T) {
 	tests := map[string]struct {
-		namer     MethodNamer
+		namer     MethodNameFormatter
 		urlPrefix string
 	}{
 		"default namer & http": {
-			namer:     DefaultMethodNamer,
+			namer:     DefaultMethodNameFormatter,
 			urlPrefix: "http://",
 		},
 		"default namer & ws": {
-			namer:     DefaultMethodNamer,
+			namer:     DefaultMethodNameFormatter,
 			urlPrefix: "ws://",
 		},
 		"no namespace namer & http": {
-			namer:     NoNamespaceMethodNamer,
+			namer:     NoNamespaceMethodNameFormatter,
 			urlPrefix: "http://",
 		},
 		"no namespace namer & ws": {
-			namer:     NoNamespaceMethodNamer,
+			namer:     NoNamespaceMethodNameFormatter,
 			urlPrefix: "ws://",
 		},
 		"no namespace & decapitalized namer & http": {
-			namer:     NoNamespaceDecapitalizedMethodNamer,
+			namer:     NoNamespaceDecapitalizedMethodNameFormatter,
 			urlPrefix: "http://",
 		},
 		"no namespace & decapitalized namer & ws": {
-			namer:     NoNamespaceDecapitalizedMethodNamer,
+			namer:     NoNamespaceDecapitalizedMethodNameFormatter,
 			urlPrefix: "ws://",
 		},
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			rpcServer := NewServer(WithServerMethodNamer(test.namer))
+			rpcServer := NewServer(WithServerMethodNameFormatter(test.namer))
 
 			serverHandler := &SimpleServerHandler{}
 			rpcServer.Register("SimpleServerHandler", serverHandler)
@@ -101,7 +101,7 @@ func TestDifferentMethodNamersWithClient(t *testing.T) {
 				[]any{&client},
 				nil,
 				WithHTTPClient(testServ.Client()),
-				WithMethodNamer(test.namer),
+				WithMethodNameFormatter(test.namer),
 			)
 			require.NoError(t, err)
 			defer closer()
