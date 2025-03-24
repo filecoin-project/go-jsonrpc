@@ -244,6 +244,36 @@ if err := client.Call(); err != nil {
 }
 ```
 
+## Options
+
+### Using `WithMethodNameFormatter`
+
+```go
+func main() {
+	// create a new server instance with a custom separator
+	rpcServer := jsonrpc.NewServer(jsonrpc.WithMethodNameFormatter(
+		func(namespace, method string) string {
+			return namespace + "_" + method
+		}),
+	)
+
+	// create a handler instance and register it
+	serverHandler := &SimpleServerHandler{}
+	rpcServer.Register("SimpleServerHandler", serverHandler)
+
+	// serve the api
+	testServ := httptest.NewServer(rpcServer)
+	defer testServ.Close()
+
+	fmt.Println("URL: ", "ws://"+testServ.Listener.Addr().String())
+
+	// rpc method becomes SimpleServerHandler_AddGet
+
+    [..do other app stuff / wait..]
+}
+```
+
+
 ## Contribute
 
 PRs are welcome!
