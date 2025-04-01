@@ -141,9 +141,9 @@ func NewCustomClient(namespace string, outs []interface{}, doRequest func(ctx co
 
 	c := client{
 		namespace:           namespace,
-		methodNameFormatter: config.methodNamer,
 		paramEncoders:       config.paramEncoders,
 		errors:              config.errors,
+		methodNameFormatter: config.methodNamer,
 	}
 
 	stop := make(chan struct{})
@@ -196,9 +196,9 @@ func NewCustomClient(namespace string, outs []interface{}, doRequest func(ctx co
 func httpClient(ctx context.Context, addr string, namespace string, outs []interface{}, requestHeader http.Header, config Config) (ClientCloser, error) {
 	c := client{
 		namespace:           namespace,
-		methodNameFormatter: config.methodNamer,
 		paramEncoders:       config.paramEncoders,
 		errors:              config.errors,
+		methodNameFormatter: config.methodNamer,
 	}
 
 	stop := make(chan struct{})
@@ -292,9 +292,9 @@ func websocketClient(ctx context.Context, addr string, namespace string, outs []
 
 	c := client{
 		namespace:           namespace,
-		methodNameFormatter: config.methodNamer,
 		paramEncoders:       config.paramEncoders,
 		errors:              config.errors,
+		methodNameFormatter: config.methodNamer,
 	}
 
 	requests := c.setupRequestChan()

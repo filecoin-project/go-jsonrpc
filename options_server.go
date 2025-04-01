@@ -82,8 +82,8 @@ func WithReverseClient[RP any](namespace string) ServerOption {
 		c.reverseClientBuilder = func(ctx context.Context, conn *wsConn) (context.Context, error) {
 			cl := client{
 				namespace:           namespace,
-				methodNameFormatter: c.methodNameFormatter,
 				paramEncoders:       map[reflect.Type]ParamEncoder{},
+				methodNameFormatter: c.methodNameFormatter,
 			}
 
 			// todo test that everything is closing correctly
