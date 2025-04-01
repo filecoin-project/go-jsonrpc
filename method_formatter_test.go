@@ -20,12 +20,16 @@ func TestDifferentMethodNamers(t *testing.T) {
 			namer:           DefaultMethodNameFormatter,
 			requestedMethod: "SimpleServerHandler.Inc",
 		},
+		"lower fist char": {
+			namer:           NewMethodNameFormatter(true, LowerFirstCharCase),
+			requestedMethod: "SimpleServerHandler.inc",
+		},
 		"no namespace namer": {
-			namer:           NoNamespaceMethodNameFormatter,
+			namer:           NewMethodNameFormatter(false, OriginalCase),
 			requestedMethod: "Inc",
 		},
-		"no namespace & decapitalized namer": {
-			namer:           NoNamespaceDecapitalizedMethodNameFormatter,
+		"no namespace & lower fist char": {
+			namer:           NewMethodNameFormatter(false, LowerFirstCharCase),
 			requestedMethod: "inc",
 		},
 	}
@@ -63,20 +67,28 @@ func TestDifferentMethodNamersWithClient(t *testing.T) {
 			namer:     DefaultMethodNameFormatter,
 			urlPrefix: "ws://",
 		},
+		"lower first char namer & http": {
+			namer:     NewMethodNameFormatter(true, LowerFirstCharCase),
+			urlPrefix: "http://",
+		},
+		"lower first char namer & ws": {
+			namer:     NewMethodNameFormatter(true, LowerFirstCharCase),
+			urlPrefix: "ws://",
+		},
 		"no namespace namer & http": {
-			namer:     NoNamespaceMethodNameFormatter,
+			namer:     NewMethodNameFormatter(false, OriginalCase),
 			urlPrefix: "http://",
 		},
 		"no namespace namer & ws": {
-			namer:     NoNamespaceMethodNameFormatter,
+			namer:     NewMethodNameFormatter(false, OriginalCase),
 			urlPrefix: "ws://",
 		},
-		"no namespace & decapitalized namer & http": {
-			namer:     NoNamespaceDecapitalizedMethodNameFormatter,
+		"no namespace & lower first char & http": {
+			namer:     NewMethodNameFormatter(false, LowerFirstCharCase),
 			urlPrefix: "http://",
 		},
-		"no namespace & decapitalized namer & ws": {
-			namer:     NoNamespaceDecapitalizedMethodNameFormatter,
+		"no namespace & lower first char & ws": {
+			namer:     NewMethodNameFormatter(false, LowerFirstCharCase),
 			urlPrefix: "ws://",
 		},
 	}
