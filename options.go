@@ -30,6 +30,8 @@ type Config struct {
 
 	noReconnect      bool
 	proxyConnFactory func(func() (*websocket.Conn, error)) func() (*websocket.Conn, error) // for testing
+
+	methodNamer MethodNameFormatter
 }
 
 func defaultConfig() Config {
@@ -46,6 +48,8 @@ func defaultConfig() Config {
 		paramEncoders: map[reflect.Type]ParamEncoder{},
 
 		httpClient: _defaultHTTPClient,
+
+		methodNamer: DefaultMethodNameFormatter,
 	}
 }
 
@@ -108,5 +112,11 @@ func WithClientHandlerAlias(alias, original string) func(c *Config) {
 func WithHTTPClient(h *http.Client) func(c *Config) {
 	return func(c *Config) {
 		c.httpClient = h
+	}
+}
+
+func WithMethodNameFormatter(namer MethodNameFormatter) func(c *Config) {
+	return func(c *Config) {
+		c.methodNamer = namer
 	}
 }

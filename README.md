@@ -246,12 +246,25 @@ if err := client.Call(); err != nil {
 
 ## Options
 
-### Using `WithMethodNameFormatter`
+### Using `WithServerMethodNameFormatter`
+
+`WithServerMethodNameFormatter` allows you to customize a function that formats the JSON-RPC method name, given namespace and method name.
+
+There are four possible options:
+- `jsonrpc.DefaultMethodNameFormatter` - default method name formatter, e.g. `SimpleServerHandler.AddGet`
+- `jsonrpc.NewMethodNameFormatter(true, jsonrpc.LowerFirstCharCase)` - method name formatter with namespace, e.g. `SimpleServerHandler.addGet`
+- `jsonrpc.NewMethodNameFormatter(false, jsonrpc.OriginalCase)` - method name formatter without namespace, e.g. `AddGet`
+- `jsonrpc.NewMethodNameFormatter(false, jsonrpc.LowerFirstCharCase)` - method name formatter without namespace and with the first char lowercased, e.g. `addGet`
+
+> [!NOTE]  
+> The default method name formatter concatenates the namespace and method name with a dot.
+> Go exported methods are capitalized, so, the method name will be capitalized as well.
+> e.g. `SimpleServerHandler.AddGet` (capital "A" in "AddGet")
 
 ```go
 func main() {
 	// create a new server instance with a custom separator
-	rpcServer := jsonrpc.NewServer(jsonrpc.WithMethodNameFormatter(
+	rpcServer := jsonrpc.NewServer(jsonrpc.WithServerMethodNameFormatter(
 		func(namespace, method string) string {
 			return namespace + "_" + method
 		}),
@@ -273,6 +286,23 @@ func main() {
 }
 ```
 
+### Using `WithMethodNameFormatter`
+
+`WithMethodNameFormatter` is the client-side counterpart to `WithServerMethodNameFormatter`.
+
+```go
+func main() {
+    closer, err := NewMergeClient(
+        context.Background(),
+        "http://example.com",
+        "SimpleServerHandler",
+        []any{&client},
+        nil,
+        WithMethodNameFormatter(jsonrpc.NewMethodNameFormatter(false, OriginalCase)),
+    )
+    defer closer()
+}
+```
 
 ## Contribute
 
