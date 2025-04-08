@@ -250,7 +250,7 @@ if err := client.Call(); err != nil {
 
 `WithServerMethodNameFormatter` allows you to customize a function that formats the JSON-RPC method name, given namespace and method name.
 
-There are four predefined options:
+There are four possible options:
 - `jsonrpc.DefaultMethodNameFormatter` - default method name formatter, e.g. `SimpleServerHandler.AddGet`
 - `jsonrpc.NewMethodNameFormatter(true, jsonrpc.LowerFirstCharCase)` - method name formatter with namespace, e.g. `SimpleServerHandler.addGet`
 - `jsonrpc.NewMethodNameFormatter(false, jsonrpc.OriginalCase)` - method name formatter without namespace, e.g. `AddGet`
