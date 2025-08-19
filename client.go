@@ -305,7 +305,11 @@ func websocketClient(ctx context.Context, addr string, namespace string, outs []
 
 	var hnd reqestHandler
 	if len(config.reverseHandlers) > 0 {
-		h := makeHandler(defaultServerConfig())
+		sc := defaultServerConfig()
+		if config.reverseHandlersFormatter != nil {
+			sc.methodNameFormatter = config.reverseHandlersFormatter
+		}
+		h := makeHandler(sc)
 		h.aliasedMethods = config.aliasedHandlerMethods
 		for _, reverseHandler := range config.reverseHandlers {
 			h.register(reverseHandler.ns, reverseHandler.hnd)
