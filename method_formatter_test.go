@@ -3,11 +3,12 @@ package jsonrpc
 import (
 	"context"
 	"fmt"
-	"github.com/stretchr/testify/require"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestDifferentMethodNamers(t *testing.T) {
