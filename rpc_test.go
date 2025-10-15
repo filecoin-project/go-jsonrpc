@@ -1749,3 +1749,28 @@ type MethodTransformedHandler struct{}
 func (h *RawParamHandler) CallSomethingInSnakeCase(ctx context.Context, v int) (int, error) {
 	return v + 1, nil
 }
+
+func TestContentTypeHeader(t *testing.T) {
+	rpcHandler := SimpleServerHandler{}
+
+	rpcServer := NewServer()
+	rpcServer.Register("SimpleServerHandler", &rpcHandler)
+
+	testServ := httptest.NewServer(rpcServer)
+	defer testServ.Close()
+
+	// Test that the Content-Type header is set correctly
+	resp, err := http.Post(testServ.URL, "application/json", strings.NewReader(`{"jsonrpc": "2.0", "method": "SimpleServerHandler.Inc", "params": [], "id": 1}`))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	contentType := resp.Header.Get("Content-Type")
+	assert.Equal(t, "application/json", contentType, "Content-Type header should be application/json")
+
+	// Verify the response is still valid JSON
+	var jsonResp response
+	err = json.NewDecoder(resp.Body).Decode(&jsonResp)
+	require.NoError(t, err)
+	assert.Equal(t, "2.0", jsonResp.Jsonrpc)
+	assert.Equal(t, float64(1), jsonResp.ID) // JSON numbers are unmarshaled as float64
+}
