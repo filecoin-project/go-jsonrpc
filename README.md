@@ -175,7 +175,7 @@ fmt.Printf("Current value: %d\n", client.AddGet(5))
 ```
 
 ### Reverse Calling Feature
-The go-jsonrpc library also supports reverse calling, where the server can make calls to the client. This is useful in scenarios where the server needs to notify or request data from the client.
+The go-jsonrpc library also supports reverse calling, where the server can make calls to the client. This is useful in scenarios where the server needs to notify, request data from the client, or for subscriptions (e.g. `eth_subscribe`).
 
 NOTE: Reverse calling only works in websocket mode
 
@@ -246,11 +246,13 @@ if err := client.Call(); err != nil {
 
 ## Options
 
-### Using `WithServerMethodNameFormatter`
+### Using method name formatters
+
+#### Using `WithServerMethodNameFormatter`
 
 `WithServerMethodNameFormatter` allows you to customize a function that formats the JSON-RPC method name, given namespace and method name.
 
-There are four possible options:
+There are four possible out-of-the-box options:
 - `jsonrpc.DefaultMethodNameFormatter` - default method name formatter, e.g. `SimpleServerHandler.AddGet`
 - `jsonrpc.NewMethodNameFormatter(true, jsonrpc.LowerFirstCharCase)` - method name formatter with namespace, e.g. `SimpleServerHandler.addGet`
 - `jsonrpc.NewMethodNameFormatter(false, jsonrpc.OriginalCase)` - method name formatter without namespace, e.g. `AddGet`
@@ -260,6 +262,8 @@ There are four possible options:
 > The default method name formatter concatenates the namespace and method name with a dot.
 > Go exported methods are capitalized, so, the method name will be capitalized as well.
 > e.g. `SimpleServerHandler.AddGet` (capital "A" in "AddGet")
+
+You can also create your own method name formatter by creating a function that implements the `jsonrpc.MethodNameFormatter` interface.
 
 ```go
 func main() {
@@ -286,7 +290,7 @@ func main() {
 }
 ```
 
-### Using `WithMethodNameFormatter`
+#### Using `WithMethodNameFormatter`
 
 `WithMethodNameFormatter` is the client-side counterpart to `WithServerMethodNameFormatter`.
 
@@ -303,6 +307,132 @@ func main() {
     defer closer()
 }
 ```
+
+#### Using `WithClientHandlerFormatter`
+
+Same as `WithMethodNameFormatter`, but for client handlers. Using it you can fully customize the JSON-RPC method name for client handlers,
+given namespace and method name.
+
+```go
+func main() {
+    closer, err := jsonrpc.NewMergeClient(
+        context.Background(),
+        "http://example.com",
+        "SimpleServerHandler",
+        []any{&client},
+        nil,
+        jsonrpc.WithMethodNameFormatter(jsonrpc.NewMethodNameFormatter(false, OriginalCase)),
+        jsonrpc.WithClientHandler("Client", &RevCallTestClientHandler{}),
+        jsonrpc.WithClientHandlerFormatter(jsonrpc.NewMethodNameFormatter(false, OriginalCase)),
+    )
+    defer closer()
+}
+```
+### Using method name alias
+
+You can also create an alias for a method name. This is useful if you want to use a different method name in the JSON-RPC
+request than the actual method name for a specific method.
+
+#### Usage of method name alias in the server
+
+```go
+type SimpleServerHandler struct {}
+
+func (h *SimpleServerHandler) Double(in int) int {
+    return in * 2
+}
+
+// create a new server instance
+rpcServer := jsonrpc.NewServer()
+
+// create a handler instance and register it
+serverHandler := &SimpleServerHandler{}
+rpcServer.Register("SimpleServerHandler", serverHandler)
+
+// create an alias for the Double method. This will allow you to call the server's Double method
+// with the name "rand_myRandomAlias" in the JSON-RPC request.
+rpcServer.AliasMethod("rand_myRandomAlias", "SimpleServerHandler.Double")
+
+```
+
+#### Usage of method name alias with client handlers
+
+```go
+// setup the client handler
+type ReverseHandler struct {}
+
+func (h *ReverseHandler) DoubleOnClient(in int) int {
+    return in * 2
+}
+
+// create a new client instance with the client handler + method name alias
+closer, err := jsonrpc.NewMergeClient(
+    context.Background(),
+    "http://example.com",
+    "SimpleServerHandler",
+    []any{&client},
+    nil,
+    jsonrpc.WithClientHandler("Client", &ReverseHandler{}),
+    // this allows the server to call the client's DoubleOnClient method using the name "rand_theClientRandomAlias" in the JSON-RPC request.
+    jsonrpc.WithClientHandlerAlias("rand_theClientRandomAlias", "Client.DoubleOnClient"),
+)
+```
+
+#### Usage of a struct tag to define method name alias
+
+There are two cases where you can also use the `rpc_method` struct tag to define method name alias:
+in the client struct and in the reverse handler struct in the server. 
+
+In the client struct:
+```go
+// setup the client struct
+var client struct {
+    AddInt func(int) int `rpc_method:"rand_aRandomAlias"`
+}
+
+// create a new client instance with the client struct that has the `rpc_method` struct tag
+closer, err := jsonrpc.NewMergeClient(
+    context.Background(),
+    "http://example.com",
+    "SimpleServerHandler",
+    []any{&client},
+    nil,
+)
+
+// since we defined the method name alias in the client struct, this will send a JSON-RPC request with "rand_aRandomAlias" as the method name to the
+// server instead of "SimpleServerHandler.AddInt".
+result, err := client.AddInt(10)
+
+```
+
+In the server's reverse handler struct:
+
+```go
+// Define the client handler interface
+type ClientHandler struct {
+    CallOnClient func(int) (int, error) `rpc_method:"rand_theClientRandomAlias"`
+}
+
+// Define the server handler
+type ServerHandler struct {}
+
+func (h *ServerHandler) Call(ctx context.Context) (int, error) {
+    revClient, _ := jsonrpc.ExtractReverseClient[ClientHandler](ctx)
+
+    // Reverse call to the client.
+    // Since we defined the method name alias in the client handler struct tag, this
+    // will send a JSON-RPC request with "rand_theClientRandomAlias" as the method name to the
+    // client instead of "Client.CallOnClient".
+    result, err := revClient.CallOnClient(7)
+    
+    // ...
+}
+
+// Setup server with reverse client capability
+rpcServer := jsonrpc.NewServer(jsonrpc.WithReverseClient[ClientHandler]("Client"))
+rpcServer.Register("ServerHandler", &ServerHandler{})
+```
+
 
 ## Contribute
 

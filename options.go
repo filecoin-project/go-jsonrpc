@@ -23,8 +23,9 @@ type Config struct {
 	paramEncoders map[reflect.Type]ParamEncoder
 	errors        *Errors
 
-	reverseHandlers       []clientHandler
-	aliasedHandlerMethods map[string]string
+	reverseHandlers          []clientHandler
+	reverseHandlersFormatter MethodNameFormatter
+	aliasedHandlerMethods    map[string]string
 
 	httpClient *http.Client
 
@@ -98,6 +99,13 @@ func WithErrors(es Errors) func(c *Config) {
 func WithClientHandler(ns string, hnd interface{}) func(c *Config) {
 	return func(c *Config) {
 		c.reverseHandlers = append(c.reverseHandlers, clientHandler{ns, hnd})
+	}
+}
+
+// Just like WithMethodNameFormatter, but for client handlers.
+func WithClientHandlerFormatter(namer MethodNameFormatter) func(c *Config) {
+	return func(c *Config) {
+		c.reverseHandlersFormatter = namer
 	}
 }
 
