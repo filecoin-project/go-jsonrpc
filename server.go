@@ -127,6 +127,9 @@ func (s *RPCServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Set Content-Type header for JSON-RPC responses
+	w.Header().Set("Content-Type", "application/json")
+
 	ctx = context.WithValue(ctx, connectionTypeCtxKey, ConnectionTypeHTTP)
 	s.handleReader(ctx, r.Body, w, rpcError)
 }
