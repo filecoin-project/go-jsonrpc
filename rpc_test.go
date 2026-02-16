@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"reflect"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -201,6 +202,67 @@ func TestReconnection(t *testing.T) {
 
 func (h *SimpleServerHandler) ErrChanSub(ctx context.Context) (<-chan int, error) {
 	return nil, errors.New("expect to return an error")
+}
+
+// BlockingAdd blocks until the provided context is cancelled, then returns.
+func (h *SimpleServerHandler) BlockingAdd(ctx context.Context, in int) (int, error) {
+	atomic.AddInt32(&h.n, int32(in))
+	<-ctx.Done()
+	return int(atomic.LoadInt32(&h.n)), nil
+}
+
+func TestNextWriterCleanup(t *testing.T) {
+	// Verify that handler goroutines are properly cleaned up when a websocket
+	// connection is closed while the server is still processing a request.
+
+	serverHandler := &SimpleServerHandler{}
+
+	rpcServer := NewServer()
+	rpcServer.Register("SimpleServerHandler", serverHandler)
+
+	testServ := httptest.NewServer(rpcServer)
+	defer testServ.Close()
+
+	// Stabilize goroutine count — let the test server's listener settle
+	time.Sleep(50 * time.Millisecond)
+	runtime.GC()
+	goroutinesBefore := runtime.NumGoroutine()
+
+	const iterations = 10
+	for i := 0; i < iterations; i++ {
+		wsURL := "ws://" + testServ.Listener.Addr().String()
+		conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+		require.NoError(t, err)
+
+		reqMsg := fmt.Sprintf(`{"jsonrpc":"2.0","method":"SimpleServerHandler.BlockingAdd","params":[%d],"id":%d}`, i+1, i+1)
+		err = conn.WriteMessage(websocket.TextMessage, []byte(reqMsg))
+		require.NoError(t, err)
+
+		time.Sleep(50 * time.Millisecond)
+
+		closeMsg := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")
+		err = conn.WriteMessage(websocket.CloseMessage, closeMsg)
+		require.NoError(t, err)
+
+		time.Sleep(50 * time.Millisecond)
+		_ = conn.Close()
+	}
+
+	settled := false
+	for attempt := 0; attempt < 30; attempt++ {
+		time.Sleep(100 * time.Millisecond)
+		current := runtime.NumGoroutine()
+		if current <= goroutinesBefore+2 {
+			settled = true
+			break
+		}
+	}
+
+	goroutinesAfter := runtime.NumGoroutine()
+	if !settled {
+		t.Errorf("goroutine leak: before=%d after=%d; expected at most %d",
+			goroutinesBefore, goroutinesAfter, goroutinesBefore+2)
+	}
 }
 
 func TestRPCBadConnection(t *testing.T) {
@@ -1687,7 +1749,7 @@ func TestNewCustomClient(t *testing.T) {
 		reader := bytes.NewReader(body)
 		pr, pw := io.Pipe()
 		go func() {
-			defer pw.Close()
+			defer func() { _ = pw.Close() }()
 			rpcServer.HandleRequest(ctx, reader, pw)
 		}()
 		return pr, nil
@@ -1762,7 +1824,7 @@ func TestContentTypeHeader(t *testing.T) {
 	// Test that the Content-Type header is set correctly
 	resp, err := http.Post(testServ.URL, "application/json", strings.NewReader(`{"jsonrpc": "2.0", "method": "SimpleServerHandler.Inc", "params": [], "id": 1}`))
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	contentType := resp.Header.Get("Content-Type")
 	assert.Equal(t, "application/json", contentType, "Content-Type header should be application/json")

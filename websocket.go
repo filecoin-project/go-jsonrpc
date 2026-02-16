@@ -132,23 +132,26 @@ func (c *wsConn) nextMessage() {
 	c.incoming <- r
 }
 
-// nextWriter waits for writeLk and invokes the cb callback with WS message
-// writer when the lock is acquired
+// nextWriter waits for writeLk and invokes the cb callback with a WS message
+// writer when the lock is acquired. The callback must always be invoked so
+// that callers waiting on synchronization channels are unblocked (see
+// lazyWriter). On failure, cb receives io.Discard so the write is harmlessly
+// discarded.
 func (c *wsConn) nextWriter(cb func(io.Writer)) {
 	c.writeLk.Lock()
 	defer c.writeLk.Unlock()
 
 	wcl, err := c.conn.NextWriter(websocket.TextMessage)
 	if err != nil {
-		log.Error("handle me:", err)
+		log.Errorw("websocket NextWriter failed", "error", err)
+		cb(io.Discard)
 		return
 	}
 
 	cb(wcl)
 
 	if err := wcl.Close(); err != nil {
-		log.Error("handle me:", err)
-		return
+		log.Errorw("websocket writer close failed", "error", err)
 	}
 }
 
@@ -349,7 +352,7 @@ func (c *wsConn) cancelCtx(req frame) {
 
 	var id interface{}
 	if err := json.Unmarshal(params[0].data, &id); err != nil {
-		log.Error("handle me:", err)
+		log.Errorw("failed to unmarshal cancel ID", "error", err)
 		return
 	}
 
@@ -829,19 +832,28 @@ func (c *wsConn) handleWsConn(ctx context.Context) {
 			c.writeLk.Unlock()
 			serr := c.sendRequest(req.req)
 			if serr != nil {
-				log.Errorf("sendReqest failed (Handle me): %s", serr)
-			}
-			if req.req.ID == nil { // notification, return immediately
-				resp := clientResponse{
-					Jsonrpc: "2.0",
+				log.Errorw("sendRequest failed", "method", req.req.Method, "id", req.req.ID, "error", serr)
+
+				if req.req.ID != nil {
+					c.inflightLk.Lock()
+					delete(c.inflight, req.req.ID)
+					c.inflightLk.Unlock()
 				}
-				if serr != nil {
-					resp.Error = &JSONRPCError{
+
+				req.ready <- clientResponse{
+					Jsonrpc: "2.0",
+					ID:      req.req.ID,
+					Error: &JSONRPCError{
 						Code:    eTempWSError,
 						Message: fmt.Sprintf("sendRequest: %s", serr),
-					}
+					},
 				}
-				req.ready <- resp
+				break
+			}
+			if req.req.ID == nil { // notification, return immediately
+				req.ready <- clientResponse{
+					Jsonrpc: "2.0",
+				}
 			}
 
 		case <-c.pongs:
