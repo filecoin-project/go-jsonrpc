@@ -164,7 +164,7 @@ func NewCustomClient(namespace string, outs []interface{}, doRequest func(ctx co
 			return clientResponse{}, xerrors.Errorf("doRequest failed: %w", err)
 		}
 
-		defer rawResp.Close()
+		defer func() { _ = rawResp.Close() }()
 
 		var resp clientResponse
 		if cr.req.ID != nil { // non-notification
@@ -238,7 +238,7 @@ func httpClient(ctx context.Context, addr string, namespace string, outs []inter
 			return clientResponse{}, xerrors.Errorf("request failed, http status %s", httpResp.Status)
 		}
 
-		defer httpResp.Body.Close()
+		defer func() { _ = httpResp.Body.Close() }()
 
 		var resp clientResponse
 		if cr.req.ID != nil { // non-notification

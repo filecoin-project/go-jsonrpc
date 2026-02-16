@@ -37,7 +37,7 @@ func ReaderParamEncoder(addr string) jsonrpc.Option {
 				return
 			}
 
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 
 			if resp.StatusCode != 200 {
 				log.Errorf("sending reader param: non-200 status: ", resp.Status)
