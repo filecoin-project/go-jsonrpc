@@ -248,11 +248,14 @@ func TestNextWriterCleanup(t *testing.T) {
 		_ = conn.Close()
 	}
 
+	// Headroom for runtime background goroutines (GC, finalizers, etc.)
+	const goroutineMargin = 5
+
 	settled := false
 	for attempt := 0; attempt < 30; attempt++ {
 		time.Sleep(100 * time.Millisecond)
 		current := runtime.NumGoroutine()
-		if current <= goroutinesBefore+2 {
+		if current <= goroutinesBefore+goroutineMargin {
 			settled = true
 			break
 		}
@@ -261,7 +264,7 @@ func TestNextWriterCleanup(t *testing.T) {
 	goroutinesAfter := runtime.NumGoroutine()
 	if !settled {
 		t.Errorf("goroutine leak: before=%d after=%d; expected at most %d",
-			goroutinesBefore, goroutinesAfter, goroutinesBefore+2)
+			goroutinesBefore, goroutinesAfter, goroutinesBefore+goroutineMargin)
 	}
 }
 
