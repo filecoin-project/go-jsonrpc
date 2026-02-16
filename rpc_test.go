@@ -1749,7 +1749,7 @@ func TestNewCustomClient(t *testing.T) {
 		reader := bytes.NewReader(body)
 		pr, pw := io.Pipe()
 		go func() {
-			defer func() { _ = pw.Close() }()
+			defer IgnoreClose(pw)
 			rpcServer.HandleRequest(ctx, reader, pw)
 		}()
 		return pr, nil
@@ -1824,7 +1824,7 @@ func TestContentTypeHeader(t *testing.T) {
 	// Test that the Content-Type header is set correctly
 	resp, err := http.Post(testServ.URL, "application/json", strings.NewReader(`{"jsonrpc": "2.0", "method": "SimpleServerHandler.Inc", "params": [], "id": 1}`))
 	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
+	defer IgnoreClose(resp.Body)
 
 	contentType := resp.Header.Get("Content-Type")
 	assert.Equal(t, "application/json", contentType, "Content-Type header should be application/json")

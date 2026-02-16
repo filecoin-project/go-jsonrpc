@@ -3,6 +3,7 @@ package jsonrpc
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"math/rand"
 	"reflect"
@@ -78,4 +79,14 @@ func (b *backoff) next(attempt int) time.Duration {
 	}
 
 	return delay
+}
+
+// IgnoreClose closes c and ignores the returned error.
+// Use this instead of inline defer wrappers like `defer func() { _ = c.Close() }()`
+// to make intent explicit and avoid closure-capture gotchas.
+func IgnoreClose(c io.Closer) {
+	if c == nil {
+		return
+	}
+	_ = c.Close()
 }
