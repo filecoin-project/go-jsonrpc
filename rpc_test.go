@@ -385,7 +385,7 @@ func TestRPC(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = erronly.AddGet()
-	if err == nil || err.Error() != "RPC error (-32602): wrong param count (method 'SimpleServerHandler.AddGet'): 0 != 1" {
+	if err == nil || err.Error() != "RPC error (-32602): wrong param count 0 (method 'SimpleServerHandler.AddGet'): expected 1" {
 		t.Error("wrong error:", err)
 	}
 	closer()
@@ -496,7 +496,7 @@ func TestRPCHttpClient(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = erronly.AddGet()
-	if err == nil || err.Error() != "RPC error (-32602): wrong param count (method 'SimpleServerHandler.AddGet'): 0 != 1" {
+	if err == nil || err.Error() != "RPC error (-32602): wrong param count 0 (method 'SimpleServerHandler.AddGet'): expected 1" {
 		t.Error("wrong error:", err)
 	}
 	closer()
