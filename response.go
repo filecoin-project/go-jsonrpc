@@ -8,8 +8,8 @@ import (
 
 type response struct {
 	Jsonrpc string        `json:"jsonrpc"`
-	Result  interface{}   `json:"result,omitempty"`
-	ID      interface{}   `json:"id"`
+	Result  any           `json:"result,omitempty"`
+	ID      any           `json:"id"`
 	Error   *JSONRPCError `json:"error,omitempty"`
 }
 
@@ -22,7 +22,7 @@ func (r response) MarshalJSON() ([]byte, error) {
 	// > `error`:
 	// > This member is REQUIRED on error.
 	// > This member MUST NOT exist if there was no error triggered during invocation.
-	data := map[string]interface{}{
+	data := map[string]any{
 		"jsonrpc": r.Jsonrpc,
 		"id":      r.ID,
 	}
@@ -39,7 +39,7 @@ type JSONRPCError struct {
 	Code    ErrorCode       `json:"code"`
 	Message string          `json:"message"`
 	Meta    json.RawMessage `json:"meta,omitempty"`
-	Data    interface{}     `json:"data,omitempty"`
+	Data    any             `json:"data,omitempty"`
 }
 
 func (e *JSONRPCError) Error() string {
@@ -51,8 +51,8 @@ func (e *JSONRPCError) Error() string {
 
 var (
 	_             error = (*JSONRPCError)(nil)
-	marshalableRT       = reflect.TypeOf(new(marshalable)).Elem()
-	errorCodecRT        = reflect.TypeOf(new(RPCErrorCodec)).Elem()
+	marshalableRT       = reflect.TypeFor[marshalable]()
+	errorCodecRT        = reflect.TypeFor[RPCErrorCodec]()
 )
 
 func (e *JSONRPCError) val(errors *Errors) reflect.Value {

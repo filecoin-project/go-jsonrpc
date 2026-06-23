@@ -43,7 +43,7 @@ func TestReaderProxy(t *testing.T) {
 	defer testServ.Close()
 
 	re := ReaderParamEncoder("http://" + testServ.Listener.Addr().String() + "/rpc/streams/v0/push")
-	closer, err := jsonrpc.NewMergeClient(context.Background(), "ws://"+testServ.Listener.Addr().String()+"/rpc/v0", "ReaderHandler", []interface{}{&client}, nil, re)
+	closer, err := jsonrpc.NewMergeClient(context.Background(), "ws://"+testServ.Listener.Addr().String()+"/rpc/v0", "ReaderHandler", []any{&client}, nil, re)
 	require.NoError(t, err)
 
 	defer closer()
@@ -51,4 +51,17 @@ func TestReaderProxy(t *testing.T) {
 	read, err := client.ReadAll(context.TODO(), strings.NewReader("pooooootato"))
 	require.NoError(t, err)
 	require.Equal(t, "pooooootato", string(read), "potatos weren't equal")
+}
+
+func TestWaitReadCloserCloseAfterEOF(t *testing.T) {
+	wr := &waitReadCloser{
+		ReadCloser: io.NopCloser(strings.NewReader("")),
+		wait:       make(chan struct{}),
+	}
+
+	_, err := io.ReadAll(wr)
+	require.NoError(t, err)
+	require.NotPanics(t, func() {
+		require.NoError(t, wr.Close())
+	})
 }

@@ -37,7 +37,7 @@ func defaultServerConfig() ServerConfig {
 	}
 }
 
-func WithParamDecoder(t interface{}, decoder ParamDecoder) ServerOption {
+func WithParamDecoder(t any, decoder ParamDecoder) ServerOption {
 	return func(c *ServerConfig) {
 		c.paramDecoders[reflect.TypeOf(t).Elem()] = decoder
 	}
@@ -94,14 +94,14 @@ func WithReverseClient[RP any](namespace string) ServerOption {
 
 			calls := new(RP)
 
-			err := cl.provide([]interface{}{
+			err := cl.provide([]any{
 				calls,
 			})
 			if err != nil {
 				return nil, xerrors.Errorf("provide reverse client calls: %w", err)
 			}
 
-			return context.WithValue(ctx, jsonrpcReverseClient{reflect.TypeOf(calls).Elem()}, calls), nil
+			return context.WithValue(ctx, jsonrpcReverseClient{reflect.TypeFor[RP]()}, calls), nil
 		}
 	}
 }
@@ -112,7 +112,7 @@ func WithReverseClient[RP any](namespace string) ServerOption {
 // If there is no reverse client, the call will return a zero value and `false`. Otherwise a reverse
 // client and `true` will be returned.
 func ExtractReverseClient[C any](ctx context.Context) (C, bool) {
-	c, ok := ctx.Value(jsonrpcReverseClient{reflect.TypeOf(new(C)).Elem()}).(*C)
+	c, ok := ctx.Value(jsonrpcReverseClient{reflect.TypeFor[C]()}).(*C)
 	if !ok {
 		return *new(C), false
 	}

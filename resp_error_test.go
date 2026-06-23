@@ -180,7 +180,7 @@ func TestRespErrorVal(t *testing.T) {
 	testCases := []struct {
 		name            string
 		respError       *JSONRPCError
-		expectedType    interface{}
+		expectedType    any
 		expectedMessage string
 		verify          func(t *testing.T, err error)
 	}{

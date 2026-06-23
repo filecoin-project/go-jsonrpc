@@ -22,7 +22,7 @@ import (
 
 type RawParams json.RawMessage
 
-var rtRawParams = reflect.TypeOf(RawParams{})
+var rtRawParams = reflect.TypeFor[RawParams]()
 
 // todo is there a better way to tell 'struct with any number of fields'?
 func DecodeParams[T any](p RawParams) (T, error) {
@@ -53,7 +53,7 @@ type methodHandler struct {
 
 type request struct {
 	Jsonrpc string            `json:"jsonrpc"`
-	ID      interface{}       `json:"id,omitempty"`
+	ID      any               `json:"id,omitempty"`
 	Method  string            `json:"method"`
 	Params  json.RawMessage   `json:"params"`
 	Meta    map[string]string `json:"meta,omitempty"`
@@ -102,7 +102,7 @@ func makeHandler(sc ServerConfig) *handler {
 
 // Register
 
-func (s *handler) register(namespace string, r interface{}) {
+func (s *handler) register(namespace string, r any) {
 	val := reflect.ValueOf(r)
 	// TODO: expect ptr
 
@@ -149,7 +149,7 @@ func (s *handler) register(namespace string, r interface{}) {
 // Handle
 
 type rpcErrFunc func(w func(func(io.Writer)), req *request, code ErrorCode, err error)
-type chanOut func(reflect.Value, interface{}) error
+type chanOut func(reflect.Value, any) error
 
 func (s *handler) handleReader(ctx context.Context, r io.Reader, w io.Writer, rpcError rpcErrFunc) {
 	wf := func(cb func(io.Writer)) {
@@ -204,20 +204,36 @@ func (s *handler) handleReader(ctx context.Context, r io.Reader, w io.Writer, rp
 			return
 		}
 
-		_, _ = w.Write([]byte("[")) // todo consider handling this error
-		for idx, req := range reqs {
-			if req.ID, err = normalizeID(req.ID); err != nil {
-				rpcError(wf, &req, rpcParseError, xerrors.Errorf("failed to parse ID: %w", err))
-				return
+		wroteResponse := false
+		for _, req := range reqs {
+			var resp bytes.Buffer
+			respWriter := func(cb func(io.Writer)) {
+				cb(&resp)
 			}
 
-			s.handle(ctx, req, wf, rpcError, func(bool) {}, nil)
+			if req.ID, err = normalizeID(req.ID); err != nil {
+				rpcError(respWriter, &req, rpcParseError, xerrors.Errorf("failed to parse ID: %w", err))
+			} else {
+				s.handle(ctx, req, respWriter, rpcError, func(bool) {}, nil)
+			}
 
-			if idx != len(reqs)-1 {
+			if resp.Len() == 0 {
+				continue
+			}
+
+			if !wroteResponse {
+				_, _ = w.Write([]byte("[")) // todo consider handling this error
+				wroteResponse = true
+			} else {
 				_, _ = w.Write([]byte(",")) // todo consider handling this error
 			}
+
+			_, _ = w.Write(resp.Bytes()) // todo consider handling this error
 		}
-		_, _ = w.Write([]byte("]")) // todo consider handling this error
+
+		if wroteResponse {
+			_, _ = w.Write([]byte("]")) // todo consider handling this error
+		}
 	} else {
 		var req request
 		if err := json.NewDecoder(bufferedRequest).Decode(&req); err != nil {
@@ -254,14 +270,15 @@ func (s *handler) getSpan(ctx context.Context, req request) (context.Context, *t
 	var span *trace.Span
 	if eSC, ok := req.Meta["SpanContext"]; ok {
 		bSC := make([]byte, base64.StdEncoding.DecodedLen(len(eSC)))
-		_, err := base64.StdEncoding.Decode(bSC, []byte(eSC))
+		n, err := base64.StdEncoding.Decode(bSC, []byte(eSC))
 		if err != nil {
-			log.Errorf("SpanContext: decode", "error", err)
+			log.Errorw("SpanContext: decode", "error", err)
 			return ctx, nil
 		}
+		bSC = bSC[:n]
 		sc, ok := propagation.FromBinary(bSC)
 		if !ok {
-			log.Errorf("SpanContext: could not create span", "data", bSC)
+			log.Errorw("SpanContext: could not create span", "data", bSC)
 			return ctx, nil
 		}
 		ctx, span = trace.StartSpanWithRemoteParent(ctx, "api.handle", sc)
@@ -430,7 +447,7 @@ func (s *handler) handle(ctx context.Context, req request, w func(func(io.Writer
 	}
 
 	var kind reflect.Kind
-	var res interface{}
+	var res any
 	var nonZero bool
 	if handler.valOut != -1 {
 		res = callResult[handler.valOut].Interface()

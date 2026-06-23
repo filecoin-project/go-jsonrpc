@@ -25,7 +25,10 @@ func ReaderParamEncoder(addr string) jsonrpc.Option {
 		r := value.Interface().(io.Reader)
 
 		reqID := uuid.New()
-		u, _ := url.Parse(addr)
+		u, err := url.Parse(addr)
+		if err != nil {
+			return reflect.Value{}, xerrors.Errorf("parsing reader param URL: %w", err)
+		}
 		u.Path = path.Join(u.Path, reqID.String())
 
 		go func() {
@@ -40,7 +43,7 @@ func ReaderParamEncoder(addr string) jsonrpc.Option {
 			defer func() { _ = resp.Body.Close() }()
 
 			if resp.StatusCode != 200 {
-				log.Errorf("sending reader param: non-200 status: ", resp.Status)
+				log.Errorf("sending reader param: non-200 status: %s", resp.Status)
 				return
 			}
 
@@ -52,19 +55,26 @@ func ReaderParamEncoder(addr string) jsonrpc.Option {
 
 type waitReadCloser struct {
 	io.ReadCloser
-	wait chan struct{}
+	wait     chan struct{}
+	waitOnce sync.Once
+}
+
+func (w *waitReadCloser) done() {
+	w.waitOnce.Do(func() {
+		close(w.wait)
+	})
 }
 
 func (w *waitReadCloser) Read(p []byte) (int, error) {
 	n, err := w.ReadCloser.Read(p)
 	if err != nil {
-		close(w.wait)
+		w.done()
 	}
 	return n, err
 }
 
 func (w *waitReadCloser) Close() error {
-	close(w.wait)
+	w.done()
 	return w.ReadCloser.Close()
 }
 
@@ -77,6 +87,7 @@ func ReaderParamDecoder() (http.HandlerFunc, jsonrpc.ServerOption) {
 		u, err := uuid.Parse(strId)
 		if err != nil {
 			http.Error(resp, fmt.Sprintf("parsing reader uuid: %s", err), 400)
+			return
 		}
 
 		readersLk.Lock()
@@ -95,7 +106,7 @@ func ReaderParamDecoder() (http.HandlerFunc, jsonrpc.ServerOption) {
 		select {
 		case ch <- wr:
 		case <-req.Context().Done():
-			log.Error("context error in reader stream handler (1): %v", req.Context().Err())
+			log.Errorf("context error in reader stream handler (1): %v", req.Context().Err())
 			resp.WriteHeader(500)
 			return
 		}
@@ -103,7 +114,7 @@ func ReaderParamDecoder() (http.HandlerFunc, jsonrpc.ServerOption) {
 		select {
 		case <-wr.wait:
 		case <-req.Context().Done():
-			log.Error("context error in reader stream handler (2): %v", req.Context().Err())
+			log.Errorf("context error in reader stream handler (2): %v", req.Context().Err())
 			resp.WriteHeader(500)
 			return
 		}
@@ -119,7 +130,7 @@ func ReaderParamDecoder() (http.HandlerFunc, jsonrpc.ServerOption) {
 
 		u, err := uuid.Parse(strId)
 		if err != nil {
-			return reflect.Value{}, xerrors.Errorf("parsing reader UUDD: %w", err)
+			return reflect.Value{}, xerrors.Errorf("parsing reader UUID: %w", err)
 		}
 
 		readersLk.Lock()

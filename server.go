@@ -175,7 +175,7 @@ func rpcError(wf func(func(io.Writer)), req *request, code ErrorCode, err error)
 // Register registers new RPC handler
 //
 // Handler is any value with methods defined
-func (s *RPCServer) Register(namespace string, handler interface{}) {
+func (s *RPCServer) Register(namespace string, handler any) {
 	s.register(namespace, handler)
 }
 

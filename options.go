@@ -12,7 +12,7 @@ type ParamEncoder func(reflect.Value) (reflect.Value, error)
 
 type clientHandler struct {
 	ns  string
-	hnd interface{}
+	hnd any
 }
 
 type Config struct {
@@ -84,7 +84,7 @@ func WithNoReconnect() func(c *Config) {
 	}
 }
 
-func WithParamEncoder(t interface{}, encoder ParamEncoder) func(c *Config) {
+func WithParamEncoder(t any, encoder ParamEncoder) func(c *Config) {
 	return func(c *Config) {
 		c.paramEncoders[reflect.TypeOf(t).Elem()] = encoder
 	}
@@ -96,7 +96,7 @@ func WithErrors(es Errors) func(c *Config) {
 	}
 }
 
-func WithClientHandler(ns string, hnd interface{}) func(c *Config) {
+func WithClientHandler(ns string, hnd any) func(c *Config) {
 	return func(c *Config) {
 		c.reverseHandlers = append(c.reverseHandlers, clientHandler{ns, hnd})
 	}
