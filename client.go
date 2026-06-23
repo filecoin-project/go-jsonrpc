@@ -426,6 +426,10 @@ func (c *client) provide(outs []any) error {
 }
 
 func (c *client) makeOutChan(ctx context.Context, ftyp reflect.Type, valOut int) (func() reflect.Value, makeChanSink) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	retVal := reflect.Zero(ftyp.Out(valOut))
 
 	chCtor := func() (context.Context, func([]byte, bool)) {
@@ -443,32 +447,41 @@ func (c *client) makeOutChan(ctx context.Context, ftyp reflect.Type, valOut int)
 			for {
 				front := buf.Front()
 
-				cases := []reflect.SelectCase{
-					{
-						Dir:  reflect.SelectRecv,
-						Chan: reflect.ValueOf(ctx.Done()),
-					},
-					{
-						Dir:  reflect.SelectRecv,
-						Chan: reflect.ValueOf(incoming),
-					},
+				var cases [3]reflect.SelectCase
+				ncases := 1
+				cases[0] = reflect.SelectCase{
+					Dir:  reflect.SelectRecv,
+					Chan: reflect.ValueOf(ctx.Done()),
 				}
 
+				incomingCase := -1
+				if incoming != nil {
+					incomingCase = ncases
+					cases[ncases] = reflect.SelectCase{
+						Dir:  reflect.SelectRecv,
+						Chan: reflect.ValueOf(incoming),
+					}
+					ncases++
+				}
+
+				sendCase := -1
 				if front != nil {
-					cases = append(cases, reflect.SelectCase{
+					sendCase = ncases
+					cases[ncases] = reflect.SelectCase{
 						Dir:  reflect.SelectSend,
 						Chan: ch,
 						Send: front.Value.(reflect.Value).Elem(),
-					})
+					}
+					ncases++
 				}
 
-				chosen, val, ok := reflect.Select(cases)
+				chosen, val, ok := reflect.Select(cases[:ncases])
 
 				switch chosen {
 				case 0:
 					ch.Close()
 					return
-				case 1:
+				case incomingCase:
 					if ok {
 						vvval := val.Interface().(reflect.Value)
 						buf.PushBack(vvval)
@@ -483,7 +496,7 @@ func (c *client) makeOutChan(ctx context.Context, ftyp reflect.Type, valOut int)
 						incoming = nil
 					}
 
-				case 2:
+				case sendCase:
 					buf.Remove(front)
 				}
 

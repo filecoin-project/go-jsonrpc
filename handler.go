@@ -204,35 +204,20 @@ func (s *handler) handleReader(ctx context.Context, r io.Reader, w io.Writer, rp
 			return
 		}
 
-		wroteResponse := false
+		bw := batchWriter{w: w}
+		batchItem := func(cb func(io.Writer)) {
+			cb(&batchItemWriter{batch: &bw})
+		}
 		for _, req := range reqs {
-			var resp bytes.Buffer
-			respWriter := func(cb func(io.Writer)) {
-				cb(&resp)
-			}
-
 			if req.ID, err = normalizeID(req.ID); err != nil {
-				rpcError(respWriter, &req, rpcParseError, xerrors.Errorf("failed to parse ID: %w", err))
+				rpcError(batchItem, &req, rpcParseError, xerrors.Errorf("failed to parse ID: %w", err))
 			} else {
-				s.handle(ctx, req, respWriter, rpcError, func(bool) {}, nil)
+				s.handle(ctx, req, batchItem, rpcError, func(bool) {}, nil)
 			}
-
-			if resp.Len() == 0 {
-				continue
-			}
-
-			if !wroteResponse {
-				_, _ = w.Write([]byte("[")) // todo consider handling this error
-				wroteResponse = true
-			} else {
-				_, _ = w.Write([]byte(",")) // todo consider handling this error
-			}
-
-			_, _ = w.Write(resp.Bytes()) // todo consider handling this error
 		}
 
-		if wroteResponse {
-			_, _ = w.Write([]byte("]")) // todo consider handling this error
+		if bw.wrote {
+			_, _ = io.WriteString(w, "]") // todo consider handling this error
 		}
 	} else {
 		var req request
@@ -248,6 +233,34 @@ func (s *handler) handleReader(ctx context.Context, r io.Reader, w io.Writer, rp
 
 		s.handle(ctx, req, wf, rpcError, func(bool) {}, nil)
 	}
+}
+
+type batchWriter struct {
+	w     io.Writer
+	wrote bool
+}
+
+type batchItemWriter struct {
+	batch *batchWriter
+	wrote bool
+}
+
+func (w *batchItemWriter) Write(p []byte) (int, error) {
+	if !w.wrote {
+		if !w.batch.wrote {
+			if _, err := io.WriteString(w.batch.w, "["); err != nil {
+				return 0, err
+			}
+			w.batch.wrote = true
+		} else {
+			if _, err := io.WriteString(w.batch.w, ","); err != nil {
+				return 0, err
+			}
+		}
+		w.wrote = true
+	}
+
+	return w.batch.w.Write(p)
 }
 
 func doCall(methodName string, f reflect.Value, params []reflect.Value) (out []reflect.Value, err error) {
@@ -483,13 +496,23 @@ func (s *handler) handle(ctx context.Context, req request, w func(func(io.Writer
 		log.Errorw("error and res returned", "request", req, "r.err", resp.Error, "res", res)
 	}
 
-	withLazyWriter(w, func(w io.Writer) {
-		if err := json.NewEncoder(w).Encode(resp); err != nil {
-			log.Error(err)
-			stats.Record(ctx, metrics.RPCResponseError.M(1))
-			return
-		}
-	})
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				err := xerrors.Errorf("panic encoding response for '%s': %v", req.Method, r)
+				log.Desugar().WithOptions(zap.AddStacktrace(zapcore.ErrorLevel)).Sugar().Error(err)
+				stats.Record(ctx, metrics.RPCResponseError.M(1))
+				rpcError(w, &req, 0, err)
+			}
+		}()
+		withLazyWriter(w, func(w io.Writer) {
+			if err := json.NewEncoder(w).Encode(resp); err != nil {
+				log.Error(err)
+				stats.Record(ctx, metrics.RPCResponseError.M(1))
+				return
+			}
+		})
+	}()
 }
 
 // withLazyWriter makes it possible to defer acquiring a writer until the first write.

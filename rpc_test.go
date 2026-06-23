@@ -1923,6 +1923,116 @@ func TestContentTypeHeader(t *testing.T) {
 	assert.Equal(t, float64(1), jsonResp.ID) // JSON numbers are unmarshaled as float64
 }
 
+type panicJSONResult struct{}
+
+func (panicJSONResult) MarshalJSON() ([]byte, error) {
+	panic("marshal boom")
+}
+
+type panicJSONHandler struct{}
+
+func (panicJSONHandler) PanicResult() (panicJSONResult, error) {
+	return panicJSONResult{}, nil
+}
+
+func (panicJSONHandler) PanicStream() (<-chan panicJSONResult, error) {
+	out := make(chan panicJSONResult, 1)
+	out <- panicJSONResult{}
+	close(out)
+	return out, nil
+}
+
+func (panicJSONHandler) AddGet(in int) (int, error) {
+	return in + 1, nil
+}
+
+func quietRPCLogsForTest(t *testing.T) {
+	t.Helper()
+	require.NoError(t, logging.SetLogLevel("rpc", "FATAL"))
+	t.Cleanup(func() {
+		_ = logging.SetLogLevel("rpc", "DEBUG")
+	})
+}
+
+func TestEncodeWebsocketResponseFallback(t *testing.T) {
+	quietRPCLogsForTest(t)
+
+	var buf bytes.Buffer
+	encodeWebsocketResponse(&buf, &response{
+		Jsonrpc: "2.0",
+		ID:      float64(1),
+		Result:  panicJSONResult{},
+	})
+
+	var resp response
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &resp))
+	require.Equal(t, float64(1), resp.ID)
+	require.NotNil(t, resp.Error)
+	require.Equal(t, ErrorCode(0), resp.Error.Code)
+	require.Contains(t, resp.Error.Message, "panic encoding websocket response")
+}
+
+func TestResponseMarshalPanicReturnsErrorAndConnectionSurvives(t *testing.T) {
+	quietRPCLogsForTest(t)
+
+	rpcServer := NewServer()
+	rpcServer.Register("Panic", panicJSONHandler{})
+
+	testServ := httptest.NewServer(rpcServer)
+	defer testServ.Close()
+
+	var client struct {
+		PanicResult func() (panicJSONResult, error)
+		AddGet      func(int) (int, error)
+	}
+	closer, err := NewMergeClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "Panic", []any{&client}, nil)
+	require.NoError(t, err)
+	defer closer()
+
+	_, err = client.PanicResult()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "panic encoding response")
+	var rpcErr *JSONRPCError
+	require.True(t, errors.As(err, &rpcErr))
+	require.Equal(t, ErrorCode(0), rpcErr.Code)
+
+	got, err := client.AddGet(41)
+	require.NoError(t, err)
+	require.Equal(t, 42, got)
+}
+
+func TestChannelMarshalPanicDoesNotCrashConnection(t *testing.T) {
+	quietRPCLogsForTest(t)
+
+	rpcServer := NewServer()
+	rpcServer.Register("Panic", panicJSONHandler{})
+
+	testServ := httptest.NewServer(rpcServer)
+	defer testServ.Close()
+
+	var client struct {
+		PanicStream func() (<-chan panicJSONResult, error)
+		AddGet      func(int) (int, error)
+	}
+	closer, err := NewMergeClient(context.Background(), "ws://"+testServ.Listener.Addr().String(), "Panic", []any{&client}, nil)
+	require.NoError(t, err)
+	defer closer()
+
+	ch, err := client.PanicStream()
+	require.NoError(t, err)
+
+	select {
+	case _, ok := <-ch:
+		require.False(t, ok)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for channel close")
+	}
+
+	got, err := client.AddGet(41)
+	require.NoError(t, err)
+	require.Equal(t, 42, got)
+}
+
 func TestBatchNotificationsDoNotCreateEmptyResponses(t *testing.T) {
 	rpcHandler := SimpleServerHandler{}
 

@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"golang.org/x/xerrors"
 )
 
@@ -105,6 +107,54 @@ type chanHandler struct {
 	lk sync.Mutex
 
 	cb func(m []byte, ok bool)
+}
+
+func logWebsocketEncodePanic(method string, r any) {
+	err := xerrors.Errorf("panic encoding websocket message for '%s': %v", method, r)
+	log.Desugar().WithOptions(zap.AddStacktrace(zapcore.ErrorLevel)).Sugar().Error(err)
+}
+
+func encodeWebsocketResponse(w io.Writer, resp *response) {
+	defer func() {
+		if r := recover(); r != nil {
+			err := xerrors.Errorf("panic encoding websocket response: %v", r)
+			log.Desugar().WithOptions(zap.AddStacktrace(zapcore.ErrorLevel)).Sugar().Error(err)
+
+			fallback := response{
+				Jsonrpc: "2.0",
+				ID:      resp.ID,
+				Error: &JSONRPCError{
+					Code:    0,
+					Message: err.Error(),
+				},
+			}
+			if err := json.NewEncoder(w).Encode(fallback); err != nil {
+				log.Errorw("failed to encode websocket error response", "error", err)
+			}
+		}
+	}()
+
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Error(err)
+	}
+}
+
+func marshalWebsocketParams(method string, params []param) (out []byte, ok bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			logWebsocketEncodePanic(method, r)
+			out = nil
+			ok = false
+		}
+	}()
+
+	out, err := json.Marshal(params)
+	if err != nil {
+		log.Errorw("failed to marshal websocket params", "method", method, "error", err)
+		return nil, false
+	}
+
+	return out, true
 }
 
 //                         //
@@ -219,10 +269,7 @@ func (c *wsConn) handleOutChans() {
 					Result:  registration.chID,
 				}
 
-				if err := json.NewEncoder(w).Encode(resp); err != nil {
-					log.Error(err)
-					return
-				}
+				encodeWebsocketResponse(w, resp)
 			})
 
 			continue
@@ -253,9 +300,8 @@ func (c *wsConn) handleOutChans() {
 			cases = cases[:n]
 			caseToID = caseToID[:n-internal]
 
-			rp, err := json.Marshal([]param{{v: reflect.ValueOf(id)}})
-			if err != nil {
-				log.Error(err)
+			rp, ok := marshalWebsocketParams(chClose, []param{{v: reflect.ValueOf(id)}})
+			if !ok {
 				continue
 			}
 
@@ -271,9 +317,8 @@ func (c *wsConn) handleOutChans() {
 		}
 
 		// forward message
-		rp, err := json.Marshal([]param{{v: reflect.ValueOf(caseToID[chosen-internal])}, {v: val}})
-		if err != nil {
-			log.Errorw("marshaling params for sendRequest failed", "err", err)
+		rp, ok := marshalWebsocketParams(chValue, []param{{v: reflect.ValueOf(caseToID[chosen-internal])}, {v: val}})
+		if !ok {
 			continue
 		}
 
@@ -321,6 +366,10 @@ func (c *wsConn) handleChanOut(ch reflect.Value, req any) error {
 //	Note that not doing this should be fine for now as long as we are using
 //	contexts correctly (cancelling when async functions are no longer is use)
 func (c *wsConn) handleCtxAsync(actx context.Context, id any) {
+	if actx == nil {
+		return
+	}
+
 	<-actx.Done()
 
 	rp, err := json.Marshal([]param{{v: reflect.ValueOf(id)}})
