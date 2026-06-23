@@ -1340,6 +1340,89 @@ func TestIDHandling(t *testing.T) {
 	}
 }
 
+func TestWebsocketControlFrames(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload string
+	}{
+		{
+			name:    "cancel/missing params",
+			payload: `{"jsonrpc":"2.0","method":"xrpc.cancel"}`,
+		},
+		{
+			name:    "cancel/missing ID",
+			payload: `{"jsonrpc":"2.0","method":"xrpc.cancel","params":[]}`,
+		},
+		{
+			name:    "cancel/array ID",
+			payload: `{"jsonrpc":"2.0","method":"xrpc.cancel","params":[[]]}`,
+		},
+		{
+			name:    "cancel/object ID",
+			payload: `{"jsonrpc":"2.0","method":"xrpc.cancel","params":[{}]}`,
+		},
+		{
+			name:    "channel value/missing params",
+			payload: `{"jsonrpc":"2.0","method":"xrpc.ch.val"}`,
+		},
+		{
+			name:    "channel value/missing channel ID",
+			payload: `{"jsonrpc":"2.0","method":"xrpc.ch.val","params":[]}`,
+		},
+		{
+			name:    "channel value/missing value",
+			payload: `{"jsonrpc":"2.0","method":"xrpc.ch.val","params":[1]}`,
+		},
+		{
+			name:    "channel value/invalid channel ID",
+			payload: `{"jsonrpc":"2.0","method":"xrpc.ch.val","params":["invalid",0]}`,
+		},
+		{
+			name:    "channel close/missing params",
+			payload: `{"jsonrpc":"2.0","method":"xrpc.ch.close"}`,
+		},
+		{
+			name:    "channel close/missing channel ID",
+			payload: `{"jsonrpc":"2.0","method":"xrpc.ch.close","params":[]}`,
+		},
+		{
+			name:    "channel close/invalid channel ID",
+			payload: `{"jsonrpc":"2.0","method":"xrpc.ch.close","params":["invalid"]}`,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			rpcServer := NewServer()
+			rpcServer.Register("SimpleServerHandler", &SimpleServerHandler{})
+
+			testServ := httptest.NewServer(rpcServer)
+			defer testServ.Close()
+
+			conn, _, err := websocket.DefaultDialer.Dial("ws://"+testServ.Listener.Addr().String(), nil)
+			require.NoError(t, err)
+			defer conn.Close()
+
+			require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(test.payload)))
+			require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(
+				`{"jsonrpc":"2.0","method":"SimpleServerHandler.AddGet","params":[41],"id":1}`,
+			)))
+
+			require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
+			_, msg, err := conn.ReadMessage()
+			require.NoError(t, err)
+
+			var resp struct {
+				Result int           `json:"result"`
+				Error  *JSONRPCError `json:"error,omitempty"`
+			}
+			require.NoError(t, json.Unmarshal(msg, &resp))
+			require.Nil(t, resp.Error)
+			require.Equal(t, 41, resp.Result)
+		})
+	}
+}
+
 func TestAliasedCall(t *testing.T) {
 	// setup server
 
