@@ -200,6 +200,108 @@ func TestReconnection(t *testing.T) {
 	assert.Less(t, attemptsPerSecond, int64(50))
 }
 
+func TestWebsocketPingHandlerSendsPongAndRecordsActivity(t *testing.T) {
+	pingData := "geth-ping"
+
+	activity := make(chan struct{}, 1)
+	serverReady := make(chan struct{})
+	serverDone := make(chan error, 1)
+	releaseWrite := make(chan struct{})
+	var releaseWriteOnce sync.Once
+	releaseServerWrite := func() {
+		releaseWriteOnce.Do(func() {
+			close(releaseWrite)
+		})
+	}
+	defer releaseServerWrite()
+
+	testServ := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		defer conn.Close()
+
+		ws := &wsConn{
+			conn:  conn,
+			pongs: activity,
+		}
+		stopPings := ws.setupPings()
+		defer stopPings()
+
+		ws.writeLk.Lock()
+		go func() {
+			<-releaseWrite
+			ws.writeLk.Unlock()
+		}()
+
+		close(serverReady)
+
+		_, _, err = conn.NextReader()
+		serverDone <- err
+	}))
+	defer testServ.Close()
+
+	client, _, err := websocket.DefaultDialer.Dial("ws://"+testServ.Listener.Addr().String(), nil)
+	require.NoError(t, err)
+	defer client.Close()
+
+	select {
+	case <-serverReady:
+	case <-time.After(2 * time.Second):
+		t.Fatal("server did not finish websocket ping setup")
+	}
+
+	receivedPong := make(chan string, 1)
+	client.SetPongHandler(func(appData string) error {
+		receivedPong <- appData
+		return nil
+	})
+
+	clientReadDone := make(chan error, 1)
+	go func() {
+		for {
+			if _, _, err := client.NextReader(); err != nil {
+				clientReadDone <- err
+				return
+			}
+		}
+	}()
+
+	err = client.WriteControl(websocket.PingMessage, []byte(pingData), time.Now().Add(time.Second))
+	require.NoError(t, err)
+
+	select {
+	case <-activity:
+	case <-time.After(2 * time.Second):
+		t.Fatal("inbound websocket ping was not recorded as activity")
+	}
+
+	releaseServerWrite()
+
+	select {
+	case appData := <-receivedPong:
+		require.Equal(t, pingData, appData)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for websocket pong")
+	}
+
+	require.NoError(t, client.Close())
+
+	select {
+	case <-clientReadDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("client read loop did not exit after close")
+	}
+
+	select {
+	case <-serverDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("server read loop did not exit after client close")
+	}
+}
+
 func (h *SimpleServerHandler) ErrChanSub(ctx context.Context) (<-chan int, error) {
 	return nil, errors.New("expect to return an error")
 }

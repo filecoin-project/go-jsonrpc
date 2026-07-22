@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"reflect"
 	"sync"
@@ -19,6 +20,7 @@ import (
 const wsCancel = "xrpc.cancel"
 const chValue = "xrpc.ch.val"
 const chClose = "xrpc.ch.close"
+const wsPongWriteWait = time.Second
 
 var debugTrace = os.Getenv("JSONRPC_ENABLE_DEBUG_TRACE") == "1"
 
@@ -576,10 +578,6 @@ func (c *wsConn) closeChans() {
 }
 
 func (c *wsConn) setupPings() func() {
-	if c.pingInterval == 0 {
-		return func() {}
-	}
-
 	c.conn.SetPongHandler(func(appData string) error {
 		select {
 		case c.pongs <- struct{}{}:
@@ -588,13 +586,30 @@ func (c *wsConn) setupPings() func() {
 		return nil
 	})
 	c.conn.SetPingHandler(func(appData string) error {
-		// treat pings as pongs - this lets us register server activity even if it's too busy to respond to our pings
+		// Record activity before attempting the pong write. This preserves the
+		// historical "treat pings as pongs" behavior even when writes are
+		// blocked, while still replying with a protocol-level pong.
 		select {
 		case c.pongs <- struct{}{}:
 		default:
 		}
-		return nil
+
+		c.writeLk.Lock()
+		defer c.writeLk.Unlock()
+
+		err := c.conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(wsPongWriteWait))
+		if err == websocket.ErrCloseSent {
+			return nil
+		}
+		if e, ok := err.(net.Error); ok && e.Temporary() {
+			return nil
+		}
+		return err
 	})
+
+	if c.pingInterval == 0 {
+		return func() {}
+	}
 
 	stop := make(chan struct{})
 
