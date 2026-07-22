@@ -221,7 +221,9 @@ func TestWebsocketPingHandlerSendsPongAndRecordsActivity(t *testing.T) {
 			serverDone <- err
 			return
 		}
-		defer conn.Close()
+		defer func() {
+			_ = conn.Close()
+		}()
 
 		ws := &wsConn{
 			conn:  conn,
@@ -245,7 +247,9 @@ func TestWebsocketPingHandlerSendsPongAndRecordsActivity(t *testing.T) {
 
 	client, _, err := websocket.DefaultDialer.Dial("ws://"+testServ.Listener.Addr().String(), nil)
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() {
+		_ = client.Close()
+	}()
 
 	select {
 	case <-serverReady:

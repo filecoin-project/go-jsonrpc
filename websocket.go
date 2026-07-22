@@ -601,7 +601,7 @@ func (c *wsConn) setupPings() func() {
 		if err == websocket.ErrCloseSent {
 			return nil
 		}
-		if e, ok := err.(net.Error); ok && e.Temporary() {
+		if e, ok := err.(net.Error); ok && e.Timeout() {
 			return nil
 		}
 		return err
