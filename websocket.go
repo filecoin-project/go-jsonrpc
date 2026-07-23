@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"reflect"
 	"sync"
@@ -20,7 +19,6 @@ import (
 const wsCancel = "xrpc.cancel"
 const chValue = "xrpc.ch.val"
 const chClose = "xrpc.ch.close"
-const wsPongWriteWait = time.Second
 
 var debugTrace = os.Getenv("JSONRPC_ENABLE_DEBUG_TRACE") == "1"
 
@@ -585,26 +583,17 @@ func (c *wsConn) setupPings() func() {
 		}
 		return nil
 	})
+	pingHandler := c.conn.PingHandler()
 	c.conn.SetPingHandler(func(appData string) error {
-		// Record activity before attempting the pong write. This preserves the
-		// historical "treat pings as pongs" behavior even when writes are
-		// blocked, while still replying with a protocol-level pong.
+		// Record activity before delegating to the websocket ping handler. This
+		// preserves the historical "treat pings as pongs" behavior while still
+		// replying with a protocol-level pong.
 		select {
 		case c.pongs <- struct{}{}:
 		default:
 		}
 
-		c.writeLk.Lock()
-		defer c.writeLk.Unlock()
-
-		err := c.conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(wsPongWriteWait))
-		if err == websocket.ErrCloseSent {
-			return nil
-		}
-		if e, ok := err.(net.Error); ok && e.Timeout() {
-			return nil
-		}
-		return err
+		return pingHandler(appData)
 	})
 
 	if c.pingInterval == 0 {

@@ -206,14 +206,6 @@ func TestWebsocketPingHandlerSendsPongAndRecordsActivity(t *testing.T) {
 	activity := make(chan struct{}, 1)
 	serverReady := make(chan struct{})
 	serverDone := make(chan error, 1)
-	releaseWrite := make(chan struct{})
-	var releaseWriteOnce sync.Once
-	releaseServerWrite := func() {
-		releaseWriteOnce.Do(func() {
-			close(releaseWrite)
-		})
-	}
-	defer releaseServerWrite()
 
 	testServ := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
@@ -231,12 +223,6 @@ func TestWebsocketPingHandlerSendsPongAndRecordsActivity(t *testing.T) {
 		}
 		stopPings := ws.setupPings()
 		defer stopPings()
-
-		ws.writeLk.Lock()
-		go func() {
-			<-releaseWrite
-			ws.writeLk.Unlock()
-		}()
 
 		close(serverReady)
 
@@ -281,8 +267,6 @@ func TestWebsocketPingHandlerSendsPongAndRecordsActivity(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("inbound websocket ping was not recorded as activity")
 	}
-
-	releaseServerWrite()
 
 	select {
 	case appData := <-receivedPong:
