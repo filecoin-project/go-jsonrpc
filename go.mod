@@ -3,7 +3,7 @@ module github.com/filecoin-project/go-jsonrpc
 go 1.25
 
 require (
-	github.com/google/uuid v1.1.1
+	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.7.4
 	github.com/gorilla/websocket v1.5.3
 	github.com/ipfs/go-log/v2 v2.9.2
