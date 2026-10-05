@@ -230,14 +230,13 @@ func httpClient(ctx context.Context, addr string, namespace string, outs []any, 
 		if err != nil {
 			return clientResponse{}, &RPCConnectionError{err}
 		}
+		defer func() { _ = httpResp.Body.Close() }()
 
 		// likely a failure outside of our control and ability to inspect; jsonrpc server only ever
 		// returns json format errors with either a StatusBadRequest or a StatusInternalServerError
 		if httpResp.StatusCode > http.StatusBadRequest && httpResp.StatusCode != http.StatusInternalServerError {
 			return clientResponse{}, xerrors.Errorf("request failed, http status %s", httpResp.Status)
 		}
-
-		defer func() { _ = httpResp.Body.Close() }()
 
 		var resp clientResponse
 		if cr.req.ID != nil { // non-notification
