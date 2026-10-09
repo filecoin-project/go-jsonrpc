@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"reflect"
 	"sync"
@@ -78,7 +77,6 @@ type wsConn struct {
 	failed           chan struct{}
 	failOnce         sync.Once
 	maxSubscriptions int
-	maxRequestSize   *int64 // nil leaves client reads unlimited
 
 	// incoming messages
 	incoming    chan io.Reader
@@ -960,15 +958,7 @@ func (c *wsConn) readFrame(ctx context.Context, r io.Reader) {
 	// json.NewDecoder(r).Decode would read the whole frame as well, so might as well do it
 	// with ReadAll which should be much faster
 	// use a autoResetReader in case the read takes a long time
-	reader := c.autoResetReader(r)
-	if c.maxRequestSize != nil && *c.maxRequestSize < math.MaxInt64 {
-		// Read one extra byte to distinguish a full frame from an oversized one.
-		reader = io.LimitReader(reader, *c.maxRequestSize+1)
-	}
-	buf, err := io.ReadAll(reader) // todo buffer pool
-	if err == nil && c.maxRequestSize != nil && int64(len(buf)) > *c.maxRequestSize {
-		err = xerrors.Errorf("websocket frame exceeds maximum size of %d bytes", *c.maxRequestSize)
-	}
+	buf, err := io.ReadAll(c.autoResetReader(r)) // todo buffer pool
 	if err != nil {
 		select {
 		case c.readError <- xerrors.Errorf("reading frame into a buffer: %w", err):

@@ -91,13 +91,16 @@ func (s *RPCServer) handleWS(ctx context.Context, w http.ResponseWriter, r *http
 		return
 	}
 	defer func() { _ = c.Close() }()
+	// gorilla checks each frame header against the limit before reading its
+	// payload, accumulating across fragments. It treats 0 as unlimited, where
+	// the HTTP path rejects every non-empty body, so clamp to match.
+	c.SetReadLimit(max(s.maxRequestSize, 1))
 
 	wc := &wsConn{
 		conn:             c,
 		handler:          s,
 		pingInterval:     s.pingInterval,
 		maxSubscriptions: s.maxSubscriptions,
-		maxRequestSize:   &s.maxRequestSize,
 		exiting:          make(chan struct{}),
 	}
 

@@ -2,13 +2,13 @@ package jsonrpc
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"math"
 	"net"
-	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
@@ -1132,6 +1132,9 @@ func TestWebsocketServerFrameLimit(t *testing.T) {
 		{name: "below limit", limit: 128, size: 127},
 		{name: "at limit", limit: 128, size: 128},
 		{name: "over limit", limit: 128, size: 129, reject: true},
+		// The dialer's 4KiB write buffer splits these into continuation frames.
+		{name: "fragmented at limit", limit: 16 << 10, size: 16 << 10},
+		{name: "fragmented over limit", limit: 16 << 10, size: 16<<10 + 1, reject: true},
 		{name: "zero limit", limit: 0, size: 128, reject: true},
 		{name: "maximum limit", limit: math.MaxInt64, size: 128},
 	} {
@@ -1145,8 +1148,6 @@ func TestWebsocketServerFrameLimit(t *testing.T) {
 				_ = conn.Close()
 				subscriptionTestReceive(t, serverConn.exiting)
 			})
-			require.NotNil(t, serverConn.maxRequestSize)
-			require.Equal(t, test.limit, *serverConn.maxRequestSize)
 
 			payload := `{"jsonrpc":"2.0","id":1,"method":"Frames.Echo","params":["ok"]}`
 			require.LessOrEqual(t, len(payload), test.size)
@@ -1157,11 +1158,7 @@ func TestWebsocketServerFrameLimit(t *testing.T) {
 			require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
 			if test.reject {
 				_, _, err = conn.ReadMessage()
-				require.Error(t, err)
-				var netErr net.Error
-				if errors.As(err, &netErr) {
-					require.False(t, netErr.Timeout(), "oversized request should close the connection")
-				}
+				require.True(t, websocket.IsCloseError(err, websocket.CloseMessageTooBig), "expected close 1009, got %v", err)
 				subscriptionTestReceive(t, serverConn.exiting)
 				require.Zero(t, service.calls.Load(), "oversized requests must not invoke the handler")
 				return
@@ -1177,88 +1174,28 @@ func TestWebsocketServerFrameLimit(t *testing.T) {
 	}
 }
 
-func TestWebsocketClientFrameSize(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	t.Cleanup(cancel)
-	deadline, _ := ctx.Deadline()
-	written := make(chan error, 1)
-	release := make(chan struct{})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			written <- err
-			return
-		}
-		defer func() { _ = conn.Close() }()
-		err = func() error {
-			if err := conn.SetReadDeadline(deadline); err != nil {
-				return err
-			}
-			if err := conn.SetWriteDeadline(deadline); err != nil {
-				return err
-			}
-			var req frame
-			if err := conn.ReadJSON(&req); err != nil {
-				return err
-			}
-			writer, err := conn.NextWriter(websocket.TextMessage)
-			if err != nil {
-				return err
-			}
-			// Keep the decoded result small while the message exceeds the default server limit.
-			padding := strings.Repeat(" ", 64<<10)
-			for sent := 0; sent < DEFAULT_MAX_REQUEST_SIZE; sent += len(padding) {
-				if _, err := io.WriteString(writer, padding); err != nil {
-					return err
-				}
-			}
-			if err := json.NewEncoder(writer).Encode(frame{Jsonrpc: "2.0", ID: req.ID, Result: json.RawMessage(`"ok"`)}); err != nil {
-				return err
-			}
-			return writer.Close()
-		}()
-		written <- err
-		// Keep the connection open until the client has processed the response.
-		<-release
-	}))
-	t.Cleanup(server.Close)
-	t.Cleanup(func() { close(release) })
-	url := "ws" + strings.TrimPrefix(server.URL, "http")
-	var proxy struct {
-		Result func(context.Context) (string, error)
-	}
-	closeClient, err := NewMergeClient(ctx, url, "Frames", []any{&proxy}, nil, WithNoReconnect(), WithPingInterval(0))
+func TestWebsocketServerRejectsOversizedFrameHeader(t *testing.T) {
+	service := &frameLimitService{}
+	url, connections := newFrameLimitServer(t, 1<<10, service)
+	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
 	require.NoError(t, err)
-	t.Cleanup(closeClient)
+	serverConn := subscriptionTestReceive(t, connections)
+	t.Cleanup(func() {
+		_ = conn.Close()
+		subscriptionTestReceive(t, serverConn.exiting)
+	})
 
-	got, err := proxy.Result(ctx)
+	// A masked text frame header declaring a 1TiB payload, with no payload sent.
+	// The server must reject on the declared length rather than wait to read it.
+	header := []byte{0x81, 0x80 | 127}
+	header = binary.BigEndian.AppendUint64(header, 1<<40)
+	header = append(header, 0, 0, 0, 0)
+	_, err = conn.UnderlyingConn().Write(header)
 	require.NoError(t, err)
-	require.Equal(t, "ok", got)
-	select {
-	case err := <-written:
-		require.NoError(t, err)
-	case <-ctx.Done():
-		t.Fatal("timed out writing the response")
-	}
-}
 
-func TestReadFrameRejectsOversizedFrame(t *testing.T) {
-	limit := int64(128)
-	payload := `{"jsonrpc":"2.0","id":1,"method":"Frames.Echo","params":["ok"]}`
-	source := strings.NewReader(payload + strings.Repeat(" ", 256-len(payload)))
-	c := &wsConn{
-		maxRequestSize: &limit,
-		readError:      make(chan error, 1),
-		frameExecQueue: make(chan []byte, 1),
-		failed:         make(chan struct{}),
-	}
-	c.readFrame(context.Background(), source)
-	select {
-	case err := <-c.readError:
-		require.EqualError(t, err, "reading frame into a buffer: websocket frame exceeds maximum size of 128 bytes")
-	default:
-		t.Fatal("oversized frame did not produce a read error")
-	}
-	require.Equal(t, limit+1, source.Size()-int64(source.Len()), "stop reading as soon as the frame exceeds the limit")
-	require.Empty(t, c.frameExecQueue, "oversized frames must not reach the executor")
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
+	_, _, err = conn.ReadMessage()
+	require.True(t, websocket.IsCloseError(err, websocket.CloseMessageTooBig), "expected close 1009, got %v", err)
+	subscriptionTestReceive(t, serverConn.exiting)
+	require.Zero(t, service.calls.Load())
 }
