@@ -1491,7 +1491,7 @@ func TestWebsocketControlFrames(t *testing.T) {
 
 			conn, _, err := websocket.DefaultDialer.Dial("ws://"+testServ.Listener.Addr().String(), nil)
 			require.NoError(t, err)
-			defer conn.Close()
+			defer func() { _ = conn.Close() }()
 
 			require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(test.payload)))
 			require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(
