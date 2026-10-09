@@ -50,7 +50,8 @@ type RPCServer struct {
 	*handler
 	reverseClientBuilder func(context.Context, *wsConn) (context.Context, error)
 
-	pingInterval time.Duration
+	pingInterval     time.Duration
+	maxSubscriptions int
 }
 
 // NewServer creates new RPCServer instance
@@ -64,7 +65,8 @@ func NewServer(opts ...ServerOption) *RPCServer {
 		handler:              makeHandler(config),
 		reverseClientBuilder: config.reverseClientBuilder,
 
-		pingInterval: config.pingInterval,
+		pingInterval:     config.pingInterval,
+		maxSubscriptions: config.maxSubscriptions,
 	}
 }
 
@@ -88,12 +90,15 @@ func (s *RPCServer) handleWS(ctx context.Context, w http.ResponseWriter, r *http
 		// note that upgrader.Upgrade will set http error if there is an error
 		return
 	}
+	defer func() { _ = c.Close() }()
 
 	wc := &wsConn{
-		conn:         c,
-		handler:      s,
-		pingInterval: s.pingInterval,
-		exiting:      make(chan struct{}),
+		conn:             c,
+		handler:          s,
+		pingInterval:     s.pingInterval,
+		maxSubscriptions: s.maxSubscriptions,
+		maxRequestSize:   &s.maxRequestSize,
+		exiting:          make(chan struct{}),
 	}
 
 	if s.reverseClientBuilder != nil {
@@ -110,10 +115,6 @@ func (s *RPCServer) handleWS(ctx context.Context, w http.ResponseWriter, r *http
 		wc.handleWsConn(ctx)
 	})
 
-	if err := c.Close(); err != nil {
-		log.Errorw("closing websocket connection", "error", err)
-		return
-	}
 }
 
 // TODO: return errors to clients per spec

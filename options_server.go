@@ -14,8 +14,9 @@ type jsonrpcReverseClient struct{ reflect.Type }
 type ParamDecoder func(ctx context.Context, json []byte) (reflect.Value, error)
 
 type ServerConfig struct {
-	maxRequestSize int64
-	pingInterval   time.Duration
+	maxRequestSize   int64
+	pingInterval     time.Duration
+	maxSubscriptions int
 
 	paramDecoders map[reflect.Type]ParamDecoder
 	errors        *Errors
@@ -29,8 +30,9 @@ type ServerOption func(c *ServerConfig)
 
 func defaultServerConfig() ServerConfig {
 	return ServerConfig{
-		paramDecoders:  map[reflect.Type]ParamDecoder{},
-		maxRequestSize: DEFAULT_MAX_REQUEST_SIZE,
+		paramDecoders:    map[reflect.Type]ParamDecoder{},
+		maxRequestSize:   DEFAULT_MAX_REQUEST_SIZE,
+		maxSubscriptions: defaultMaxSubscriptions,
 
 		pingInterval:        5 * time.Second,
 		methodNameFormatter: DefaultMethodNameFormatter,
@@ -46,6 +48,15 @@ func WithParamDecoder(t any, decoder ParamDecoder) ServerOption {
 func WithMaxRequestSize(max int64) ServerOption {
 	return func(c *ServerConfig) {
 		c.maxRequestSize = max
+	}
+}
+
+// WithMaxSubscriptions limits pending and active subscriptions per WebSocket connection.
+// Values <= 0 use the default of 16384. Values above 65534 are capped to leave
+// room for the two internal reflect.Select cases.
+func WithMaxSubscriptions(max int) ServerOption {
+	return func(c *ServerConfig) {
+		c.maxSubscriptions = max
 	}
 }
 

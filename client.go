@@ -35,6 +35,10 @@ var (
 
 	log = logging.Logger("rpc")
 
+	// Normal channel closure must not send cancellation for a request ID that
+	// a retry may already have reused on a new connection.
+	errChannelClosed = xerrors.New("RPC channel closed")
+
 	_defaultHTTPClient = &http.Client{
 		Transport: &http.Transport{
 			Proxy: http.ProxyFromEnvironment,
@@ -367,6 +371,14 @@ func (c *client) setupRequestChan() chan clientRequest {
 			select {
 			case resp = <-cr.ready:
 				break loop
+			case <-c.exiting:
+				// A response may have been queued immediately before shutdown.
+				select {
+				case resp = <-cr.ready:
+					break loop
+				default:
+					return clientResponse{}, xerrors.New("websocket routine exiting")
+				}
 			case <-ctxDone: // send cancel request
 				ctxDone = nil
 
@@ -432,6 +444,7 @@ func (c *client) makeOutChan(ctx context.Context, ftyp reflect.Type, valOut int)
 	retVal := reflect.Zero(ftyp.Out(valOut))
 
 	chCtor := func() (context.Context, func([]byte, bool)) {
+		chanCtx, cancel := context.WithCancelCause(ctx)
 		// unpack chan type to make sure it's reflect.BothDir
 		ctyp := reflect.ChanOf(reflect.BothDir, ftyp.Out(valOut).Elem())
 		ch := reflect.MakeChan(ctyp, 0) // todo: buffer?
@@ -439,9 +452,13 @@ func (c *client) makeOutChan(ctx context.Context, ftyp reflect.Type, valOut int)
 
 		incoming := make(chan reflect.Value, 32)
 
-		// gorotuine to handle buffering of items
+		// goroutine to handle buffering of items
 		go func() {
+			defer cancel(errChannelClosed)
+			defer ch.Close()
+
 			buf := (&list.List{}).Init()
+			incomingCh := incoming
 
 			for {
 				front := buf.Front()
@@ -450,15 +467,15 @@ func (c *client) makeOutChan(ctx context.Context, ftyp reflect.Type, valOut int)
 				ncases := 1
 				cases[0] = reflect.SelectCase{
 					Dir:  reflect.SelectRecv,
-					Chan: reflect.ValueOf(ctx.Done()),
+					Chan: reflect.ValueOf(chanCtx.Done()),
 				}
 
 				incomingCase := -1
-				if incoming != nil {
+				if incomingCh != nil {
 					incomingCase = ncases
 					cases[ncases] = reflect.SelectCase{
 						Dir:  reflect.SelectRecv,
-						Chan: reflect.ValueOf(incoming),
+						Chan: reflect.ValueOf(incomingCh),
 					}
 					ncases++
 				}
@@ -478,7 +495,6 @@ func (c *client) makeOutChan(ctx context.Context, ftyp reflect.Type, valOut int)
 
 				switch chosen {
 				case 0:
-					ch.Close()
 					return
 				case incomingCase:
 					if ok {
@@ -492,21 +508,20 @@ func (c *client) makeOutChan(ctx context.Context, ftyp reflect.Type, valOut int)
 							}
 						}
 					} else {
-						incoming = nil
+						incomingCh = nil
 					}
 
 				case sendCase:
 					buf.Remove(front)
 				}
 
-				if incoming == nil && buf.Len() == 0 {
-					ch.Close()
+				if incomingCh == nil && buf.Len() == 0 {
 					return
 				}
 			}
 		}()
 
-		return ctx, func(result []byte, ok bool) {
+		return chanCtx, func(result []byte, ok bool) {
 			if !ok {
 				close(incoming)
 				return
@@ -518,14 +533,14 @@ func (c *client) makeOutChan(ctx context.Context, ftyp reflect.Type, valOut int)
 				return
 			}
 
-			if ctx.Err() != nil {
-				log.Errorf("got rpc message with cancelled context: %s", ctx.Err())
+			if chanCtx.Err() != nil {
+				log.Errorf("got rpc message with cancelled context: %s", chanCtx.Err())
 				return
 			}
 
 			select {
 			case incoming <- val:
-			case <-ctx.Done():
+			case <-chanCtx.Done():
 			}
 		}
 	}

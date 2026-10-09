@@ -149,7 +149,10 @@ func (s *handler) register(namespace string, r any) {
 // Handle
 
 type rpcErrFunc func(w func(func(io.Writer)), req *request, code ErrorCode, err error)
-type chanOut func(reflect.Value, any) error
+type chanOut struct {
+	reserve  func() error
+	register func(reflect.Value, any) error
+}
 
 func (s *handler) handleReader(ctx context.Context, r io.Reader, w io.Writer, rpcError rpcErrFunc) {
 	wf := func(cb func(io.Writer)) {
@@ -337,7 +340,9 @@ func (s *handler) createError(err error) *JSONRPCError {
 	return out
 }
 
-func (s *handler) handle(ctx context.Context, req request, w func(func(io.Writer)), rpcError rpcErrFunc, done func(keepCtx bool), chOut chanOut) {
+func (s *handler) handle(ctx context.Context, req request, w func(func(io.Writer)), rpcError rpcErrFunc, done func(keepCtx bool), chOut *chanOut) {
+	keepCtx := false
+	defer func() { done(keepCtx) }()
 	// Not sure if we need to sanitize the incoming req.Method or not.
 	ctx, span := s.getSpan(ctx, req)
 	ctx, _ = tag.New(ctx, tag.Insert(metrics.RPCMethod, req.Method))
@@ -352,18 +357,24 @@ func (s *handler) handle(ctx context.Context, req request, w func(func(io.Writer
 		if !ok {
 			rpcError(w, &req, rpcMethodNotFound, fmt.Errorf("method '%s' not found", req.Method))
 			stats.Record(ctx, metrics.RPCInvalidMethod.M(1))
-			done(false)
 			return
 		}
 	}
 
 	outCh := handler.valOut != -1 && handler.handlerFunc.Type().Out(handler.valOut).Kind() == reflect.Chan
-	defer done(outCh)
 
 	if chOut == nil && outCh {
 		rpcError(w, &req, rpcMethodNotFound, fmt.Errorf("method '%s' not supported in this mode (no out channel support)", req.Method))
 		stats.Record(ctx, metrics.RPCRequestError.M(1))
 		return
+	}
+
+	if outCh {
+		if err := chOut.reserve(); err != nil {
+			rpcError(w, &req, 1, err)
+			stats.Record(ctx, metrics.RPCRequestError.M(1))
+			return
+		}
 	}
 
 	callParams := make([]reflect.Value, 1+handler.hasCtx+handler.nParams)
@@ -393,7 +404,6 @@ func (s *handler) handle(ctx context.Context, req request, w func(func(io.Writer
 		if len(ps) != handler.nParams {
 			rpcError(w, &req, rpcInvalidParams, fmt.Errorf("wrong param count (method '%s'): %d != %d", req.Method, len(ps), handler.nParams))
 			stats.Record(ctx, metrics.RPCRequestError.M(1))
-			done(false)
 			return
 		}
 
@@ -471,13 +481,20 @@ func (s *handler) handle(ctx context.Context, req request, w func(func(io.Writer
 	// check error as JSON-RPC spec prohibits error and value at the same time
 	if resp.Error == nil {
 		if res != nil && kind == reflect.Chan {
+			if callResult[handler.valOut].IsNil() {
+				rpcError(w, &req, 1, fmt.Errorf("method '%s' returned a nil channel", req.Method))
+				stats.Record(ctx, metrics.RPCResponseError.M(1))
+				return
+			}
+
 			// Channel responses are sent from channel control goroutine.
 			// Sending responses here could cause deadlocks on writeLk, or allow
 			// sending channel messages before this rpc call returns
 
 			//noinspection GoNilness // already checked above
-			err = chOut(callResult[handler.valOut], req.ID)
+			err = chOut.register(callResult[handler.valOut], req.ID)
 			if err == nil {
+				keepCtx = true
 				return // channel goroutine handles responding
 			}
 
